@@ -11,12 +11,12 @@ Options.annotate = False
 extensions = [
     Extension(
         "scbamtools.cython.kmers",
-        ["scbamtools/cython/kmers.pyx"], #include_dirs=[numpy.get_include()],
+        ["scbamtools/cython/kmers.pyx"], include_dirs=[numpy.get_include()],
     ),
-   Extension(
+    Extension(
         "scbamtools.cython.bctree",
         ["scbamtools/cython/bctree.pyx"], include_dirs=[numpy.get_include()],
-   ),
+    ),
 
 ]
 

@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from ctypes import c_int
 import typing
-import spacemake.util as util
+import scbamtools.util as util
 
 ## GTF I/O
 def attr_to_dict(attr_str: str) -> dict:
@@ -421,7 +421,7 @@ def decompose(nc):
     :yield: (start, end, frozenset(target_ids) )
     :rtype: None
     """
-    logger = logging.getLogger("spacemake.annotator.compile")
+    logger = logging.getLogger("scbamtools.annotator.compile")
     logger.debug(
         f"compiling strand into non-overlapping and pre-classified annotations"
     )
@@ -468,7 +468,7 @@ class GenomeAnnotation:
     functional GenomeAnnotation instance for the most common scenarios (from GTF, from compiled data, ...).
     """
 
-    logger = logging.getLogger("spacemake.annotator.GenomeAnnotation")
+    logger = logging.getLogger("scbamtools.annotator.GenomeAnnotation")
 
     def __init__(self, df, classifier, is_compiled=False):
         """

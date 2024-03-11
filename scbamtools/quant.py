@@ -1,9 +1,9 @@
 import numpy as np
 import logging
 from collections import defaultdict, OrderedDict
-from spacemake.contrib import __version__, __author__, __license__, __email__
-from spacemake.parallel import CountingStatistics
-import spacemake.util as util
+from scbamtools.contrib import __version__, __author__, __license__, __email__
+from scbamtools.parallel import CountingStatistics
+import scbamtools.util as util
 
 """
 This module implements the functionality needed to aggregate annotated alignments from a BAM file
@@ -105,7 +105,7 @@ default_X_reads = ["exonic_reads", "intronic_reads"] # what should be counted in
 
 class BaseCounter:
     
-    logger = logging.getLogger("spacemake.quant.BaseCounter")
+    logger = logging.getLogger("scbamtools.quant.BaseCounter")
 
     def __init__(self, 
         channels = default_channels,
@@ -256,7 +256,7 @@ class BaseCounter:
 
 class CustomIndexCounter(BaseCounter):
 
-    logger = logging.getLogger("spacemake.quant.CustomIndexCounter")
+    logger = logging.getLogger("scbamtools.quant.CustomIndexCounter")
 
     def unique_alignment(self, bundle):
         chrom, strand, _, _, score = bundle[0]
@@ -282,7 +282,7 @@ class CustomIndexCounter(BaseCounter):
 
 class mRNACounter(BaseCounter):
 
-    logger = logging.getLogger("spacemake.quant.mRNACounter")
+    logger = logging.getLogger("scbamtools.quant.mRNACounter")
 
     def __init__(self,
         alignment_priorities = default_alignment_priorities,
@@ -395,7 +395,7 @@ def sparse_summation(X, axis=0):
 
 
 class DGE:
-    logger = logging.getLogger("spacemake.quant.DGE")
+    logger = logging.getLogger("scbamtools.quant.DGE")
 
     def __init__(self, channels=["count"], cell_bc_allowlist=""):
         self.channels = channels
