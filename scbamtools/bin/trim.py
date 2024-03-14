@@ -4,6 +4,7 @@ import numpy as np
 from collections import defaultdict
 
 import mrfifo as mf
+
 # from scbamtools.parallel import (
 #     put_or_abort,
 #     queue_iter,
@@ -13,6 +14,7 @@ import mrfifo as mf
 #     log_qerr,
 # )
 import scbamtools.util as util
+import scbamtools.config as config
 from time import time
 import pysam
 import logging
@@ -21,11 +23,12 @@ import os
 
 def parse_cmdline():
     parser = util.make_minimal_parser(
-        prog="cutadapt_bam.py",
+        prog="trim.py",
         description="trim adapters from a BAM file using cutadapt",
     )
-    parser.add_argument("--config", default="config.yaml", help="path to config-file")
-
+    parser.add_argument(
+        "--config", default="", help="path to custom config-file (default='')"
+    )
     parser.add_argument(
         "bam_in",
         help="bam input (default=stdin)",
@@ -39,11 +42,11 @@ def parse_cmdline():
     )
     parser.add_argument(
         "--bam-out-mode",
-        help="bam output mode (default=b0)",
-        default="b0",
+        help="bam output mode (default=b)",
+        default="b",
     )
     parser.add_argument(
-        "--adapter-flavor",
+        "--flavor",
         help="name of the adapter flavor used to retrieve sequences and parameters from the config.yaml",
         default="default",
     )
@@ -82,13 +85,14 @@ def parse_cmdline():
         help="write tab-separated table with trimming results here",
         default="",
     )
-    parser.add_argument(
-        "--config",
-        help="path to custom config.yaml with additional or modified flavors (see default_config.yaml)",
-        default="",
-    )
+
+    # parser.add_argument(
+    #     "--config",
+    #     help="path to custom config.yaml with additional or modified flavors (see default_config.yaml)",
+    #     default="",
+    # )
     args = parser.parse_args()
-    return util.load_config_into_args(args.config, load_defaults=True)
+    return config.load(args.config, args=vars(args))
 
 
 class QualityTrim:
@@ -136,24 +140,23 @@ class AdapterFlavor:
         default_min_base_qual=20,
         default_min_read_length=18,
         default_paired_end="single_end",
-        stats={},
-        total={},
     ):
         # import cutadapt.adapters
 
-        self.stats = stats
-        self.total = total
-        self.flavor = args.adapter_flavor
-        if not args.adapter_flavor in args.config["adapter_flavors"]:
+        self.stats = defaultdict(int)
+        self.total = defaultdict(int)
+        self.lhist = defaultdict(int)
+        self.flavor = args.flavor
+        if not args.flavor in args.adapter_flavors:
             raise KeyError(
-                f"adapter_flavor '{args.adapter_flavor}' not found in config.yaml! Need valid --adapter-flavor=... "
+                f"adapter_flavor '{args.flavor}' not found in config.yaml! Need valid --flavor=... "
             )
 
-        flavor_d = args.config["adapter_flavors"][self.flavor]
+        flavor_d = args.adapter_flavors[self.flavor]
         # from pprint import pprint
 
         # pprint(flavor_d)
-        self.adapter_sequences = args.config["adapters"]
+        self.adapter_sequences = args.adapters
 
         self.trimmers_right = []
         for adap_d in flavor_d.get("cut_right", []):
@@ -254,14 +257,14 @@ class AdapterFlavor:
             tags.append(f"A5:Z:{','.join(trimmed_names_left)}")
             tags.append(f"T5:Z:{','.join([str(s) for s in trimmed_bases_left])}")
 
+        self.lhist[end - start] += 1
         return start, end, "\t".join(tags)
 
 
-
-def process_reads(read_source, args, stats={}, total={}, lhist={}):
-    flavor = AdapterFlavor(args, stats=stats, total=total)
+def process_reads(input, output, args):
+    flavor = AdapterFlavor(args)
     # TODO: paired-end processing
-    for read in read_source:
+    for read in input:
         # read_seq = read.query_sequence
         # read_qual = read.query_qualities
         # we got a string
@@ -273,14 +276,15 @@ def process_reads(read_source, args, stats={}, total={}, lhist={}):
         result = flavor.process_read(read_seq, read_qual)
         if result:
             start, end, tags = result
-            lhist[end - start] += 1
             cols[9] = read_seq[start:end]
             cols[10] = qual_str[start:end]
 
             if tags:
                 cols[-1] = f"{cols[-1]}\t{tags}"
 
-            yield "\t".join(cols)
+            output.write("\t".join(cols) + "\n")
+
+    return {"stats": flavor.stats, "total": flavor.total, "lhist": flavor.lhist}
 
 
 def is_header(line):
@@ -305,6 +309,7 @@ def main(args):
             input=mf.FIFO("dist{n}", "rt"),
             output=mf.FIFO("out{n}", "wt"),
             func=process_reads,
+            args=args,
             n=args.threads_work,
         )
         .collect(
@@ -323,7 +328,7 @@ def main(args):
         )
         .run()
     )
-        #header=util.make_header(bam_in, progname=os.path.basename(__file__)),
+    # header=util.make_header(bam_in, progname=os.path.basename(__file__)),
 
     # stats = defaultdict(int)
     # total = defaultdict(int)
@@ -345,6 +350,7 @@ def main(args):
 
     #         for k, v in sorted(lhist.items()):
     #             f.write(f"L_final\t{k}\t{v}\t{100.0 * v/stats['N_kept']:.2f}\n")
+
 
 if __name__ == "__main__":
     args = parse_cmdline()

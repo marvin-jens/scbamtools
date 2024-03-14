@@ -1,0 +1,41 @@
+[build-system]
+# Minimum requirements for the build system to execute.
+requires = ["setuptools >= 61.0", "wheel", "cython", "numpy"]  # PEP 508 specifications.
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scbamtools"
+description = "High performance Cython + Python tools to process BAM files with tags as they arise in single-cell sequencing"
+dynamic = ["version", "authors"]
+requires-python = ">= 3.8"
+readme = "README.md"
+license = {text = "MIT License"}
+keywords = ["bioinformatics", "single cell", "BAM", "SAM", "CRAM", "genetics", "cell barcode", "biology", "gene expression"]
+classifiers = [
+  # How mature is this project? Common values are
+  #   3 - Alpha
+  #   4 - Beta
+  #   5 - Production/Stable
+  "Development Status :: 3 - Alpha",
+
+  # Indicate who your project is intended for
+  "Intended Audience :: Bioinformatics",
+  "Topic :: Software Development :: Build Tools",
+
+  # Pick your license as you wish (see also "license" above)
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+  "mrfifo",
+  "cython",
+  "numpy"
+]
+
+#project.optional_dependencies]
+[project.urls]
+Homepage = "https://github.com/marvin-jens/scbamtools"
+#Documentation = "https://readthedocs.org"
+Repository = "https://github.com/marvin-jens/scbamtools.git"
+Issues = "https://github.com/marvin-jens/scbamtools/issues"
+#Changelog = "https://github.com/marvin-jens/scbamtools/blob/master/CHANGELOG.md"
+
