@@ -2,7 +2,8 @@ import numpy as np
 import logging
 from collections import defaultdict, OrderedDict
 from scbamtools.contrib import __version__, __author__, __license__, __email__
-from scbamtools.parallel import CountingStatistics
+
+# from mrfifo.util import CountingStatistics
 import scbamtools.util as util
 
 """
@@ -71,53 +72,67 @@ test for UMI uniqueness is not an issue.
 """
 
 default_alignment_priorities = {
-    'C': 100, # coding exon
-    'U': 100, # UTR exon
-    'N': 90, # exon of non-coding transcript
-    'I': 50, # intronic region
+    "C": 100,  # coding exon
+    "U": 100,  # UTR exon
+    "N": 90,  # exon of non-coding transcript
+    "I": 50,  # intronic region
     # lower case == antisense
-    'c': 10,
-    'u': 10,
-    'n': 9,
-    'i': 5,
+    "c": 10,
+    "u": 10,
+    "n": 9,
+    "i": 5,
     # intergenic
-    '-': 0,
+    "-": 0,
 }
 default_gene_priorities = {
-    'C': 110, # coding exon
-    'U': 100, # UTR exon
-    'N': 90, # exon of non-coding transcript
-    'I': 50, # intronic region
-    'c': 11,
-    'u': 10,
-    'n': 9,
-    'i': 5,
-    '-': 0,
+    "C": 110,  # coding exon
+    "U": 100,  # UTR exon
+    "N": 90,  # exon of non-coding transcript
+    "I": 50,  # intronic region
+    "c": 11,
+    "u": 10,
+    "n": 9,
+    "i": 5,
+    "-": 0,
 }
 default_exonic_tags = ["C", "U", "N"]
 default_exonic_tags += [t.lower() for t in default_exonic_tags]
 default_intronic_tags = ["I", "i"]
 
-default_channels = ["counts", "reads", "exonic_counts", "exonic_reads", "intronic_counts", "intronic_reads"]
-default_X_counts = ["exonic_counts", "intronic_counts"] # what should be counted into adata.X matrix
-default_X_reads = ["exonic_reads", "intronic_reads"] # what should be counted into adata.layers["reads"] matrix (correspond with adata.X but for reads not UMIs)
+default_channels = [
+    "counts",
+    "reads",
+    "exonic_counts",
+    "exonic_reads",
+    "intronic_counts",
+    "intronic_reads",
+]
+default_X_counts = [
+    "exonic_counts",
+    "intronic_counts",
+]  # what should be counted into adata.X matrix
+default_X_reads = [
+    "exonic_reads",
+    "intronic_reads",
+]  # what should be counted into adata.layers["reads"] matrix (correspond with adata.X but for reads not UMIs)
 
 
 class BaseCounter:
-    
+
     logger = logging.getLogger("scbamtools.quant.BaseCounter")
 
-    def __init__(self, 
-        channels = default_channels,
-        exonic_tags = default_exonic_tags,
-        intronic_tags = default_intronic_tags,
+    def __init__(
+        self,
+        channels=default_channels,
+        exonic_tags=default_exonic_tags,
+        intronic_tags=default_intronic_tags,
         X_counts=default_X_counts,
         X_reads=default_X_reads,
         handle_multimappers=True,
-
         uniq=set(),
         stats=defaultdict(int),
-        **kw):
+        **kw,
+    ):
 
         self.kw = kw
         self.channels = channels
@@ -129,7 +144,7 @@ class BaseCounter:
         # which channels shall contribute to the adata.layers['reads'] (main channel reads version)
         self.read_X_channels = set(X_reads)
         self.handle_multimappers = handle_multimappers
-  
+
         self.stats = stats
         self.uniq = uniq
 
@@ -137,7 +152,7 @@ class BaseCounter:
     def unique_alignment(self, bundle):
         # nothing to do here, we have a unique alignment
         return bundle[0]
-    
+
     def select_alignment(self, bundle):
         return None
 
@@ -170,7 +185,7 @@ class BaseCounter:
                 if uniq:
                     channels.add("intronic_counts")
 
-        # post-process: if both exon & intron annotations 
+        # post-process: if both exon & intron annotations
         # (but from different isoforms) are present
         # decide how to count
         if exon and intron:
@@ -195,46 +210,46 @@ class BaseCounter:
         # self.set_reference(reference_name)
         # print(f"bundle={bundle}")
         if len(bundle) == 1:
-            self.stats['N_aln_unique'] += 1
+            self.stats["N_aln_unique"] += 1
             selected = self.unique_alignment(bundle)
         elif self.handle_multimappers:
-            self.stats['N_aln_multi'] += 1
+            self.stats["N_aln_multi"] += 1
             selected = self.select_alignment(bundle)
             if selected:
-                self.stats['N_aln_selected'] += 1
+                self.stats["N_aln_selected"] += 1
             else:
-                self.stats['N_aln_selection_failed'] += 1
+                self.stats["N_aln_selection_failed"] += 1
 
         if selected:
-            self.stats['N_aln_countable'] += 1
+            self.stats["N_aln_countable"] += 1
             chrom, strand, gn, gf, score = selected
             # self.stats[f'N_aln_{chrom}'] += 1
-            self.stats[f'N_aln_{strand}'] += 1
+            self.stats[f"N_aln_{strand}"] += 1
 
             gene, gf = self.select_gene(*selected)
             if len(gn) == 1:
                 gene = gn[0]
-                if gene is None or gene == '-':
-                    self.stats['N_gene_none'] += 1    
+                if gene is None or gene == "-":
+                    self.stats["N_gene_none"] += 1
                 else:
-                    self.stats['N_gene_unique'] += 1
+                    self.stats["N_gene_unique"] += 1
                 # gf = gf
                 # print(f"uniq gene: {gene} {gf}")
             else:
-                self.stats['N_gene_multi'] += 1
+                self.stats["N_gene_multi"] += 1
                 if gene:
-                    self.stats['N_gene_selected'] += 1
+                    self.stats["N_gene_selected"] += 1
                 else:
-                    self.stats['N_gene_selection_failed'] += 1
-                    
+                    self.stats["N_gene_selection_failed"] += 1
+
             # count the alignment every way that the counter prescribes
-            if gene != '-':
+            if gene != "-":
                 # print(f"gene={gene} gf={gf}")
-                self.stats['N_aln_counted'] += 1
+                self.stats["N_aln_counted"] += 1
                 if gf[0].islower():
-                    self.stats['N_aln_antisense'] += 1
+                    self.stats["N_aln_antisense"] += 1
                 else:
-                    self.stats['N_aln_sense'] += 1
+                    self.stats["N_aln_sense"] += 1
 
                 # handle the whole uniqueness in a way that can parallelize
                 # maybe split by UMI[:2]? This way, distributed uniq() sets would
@@ -246,10 +261,10 @@ class BaseCounter:
 
                 channels = self.determine_channels(gf, uniq)
                 for c in channels:
-                    self.stats[f'N_channel_{c}'] += 1
+                    self.stats[f"N_channel_{c}"] += 1
 
                 if not channels:
-                    self.stats[f'N_channel_NONE'] += 1
+                    self.stats[f"N_channel_NONE"] += 1
 
         return gene, channels
 
@@ -260,11 +275,11 @@ class CustomIndexCounter(BaseCounter):
 
     def unique_alignment(self, bundle):
         chrom, strand, _, _, score = bundle[0]
-        return (chrom, strand, [chrom], ['N'], score)
+        return (chrom, strand, [chrom], ["N"], score)
 
     def select_alignment(self, bundle):
         # only consider alignments on the + strand (for custom indices)
-        plus = [b for b in bundle if b[1] == '+']
+        plus = [b for b in bundle if b[1] == "+"]
         if plus:
             return self.unique_alignment(plus)
 
@@ -276,7 +291,7 @@ class CustomIndexCounter(BaseCounter):
 
     #     return channels
 
-    # select_gene and exon_intron_disambiguation never get called 
+    # select_gene and exon_intron_disambiguation never get called
     # and thus do not need to be implemented
 
 
@@ -284,10 +299,12 @@ class mRNACounter(BaseCounter):
 
     logger = logging.getLogger("scbamtools.quant.mRNACounter")
 
-    def __init__(self,
-        alignment_priorities = default_alignment_priorities,
-        gene_priorities = default_gene_priorities,
-        **kw):
+    def __init__(
+        self,
+        alignment_priorities=default_alignment_priorities,
+        gene_priorities=default_gene_priorities,
+        **kw,
+    ):
 
         BaseCounter.__init__(self, **kw)
 
@@ -306,13 +323,13 @@ class mRNACounter(BaseCounter):
         If one of the alignments is to a coding exon, but the others are not, choose the exonic one.
         If multiple alternative alignments point to exons of different coding genes, do not count anything
         because we can not disambiguate.
-        """        
+        """
         from collections import defaultdict
 
         def get_prio(gf):
             prios = []
             for f in gf:
-                f_prios = [self.gene_priorities.get(x, 0) for x in f.split('|')]
+                f_prios = [self.gene_priorities.get(x, 0) for x in f.split("|")]
                 prios.append(max(f_prios))
 
             # prios = [self.alignment_priorities.get(f, 0) for f in gf]
@@ -321,7 +338,7 @@ class mRNACounter(BaseCounter):
         top_prio = 0
         n_top = 0
         kept = None
-          
+
         for chrom, strand, gn, gf, score in bundle:
             p = get_prio(gf)
             if p > top_prio:
@@ -341,10 +358,11 @@ class mRNACounter(BaseCounter):
         gene_prio = defaultdict(int)
         gene_gf = defaultdict(set)
         max_prio = 0
-        max_code = '-'
+        max_code = "-"
         import itertools
+
         for n, f in itertools.zip_longest(gn, gf, fillvalue=gn[0]):
-            codes = f.split('|')
+            codes = f.split("|")
             f_prios = np.array([self.gene_priorities.get(x, 0) for x in codes])
             i = f_prios.argmax()
             p = f_prios[i]
@@ -352,15 +370,15 @@ class mRNACounter(BaseCounter):
             gene_gf[n].add(c)
 
             if p < 0:
-                gene_prio[n] -= p 
-                # we get a penalty. Useful if the overlap extends 
+                gene_prio[n] -= p
+                # we get a penalty. Useful if the overlap extends
                 # beyond the boundaries of a feature
             elif gene_prio[n] <= p:
                 # we have found are higher priority annotation
                 gene_prio[n] = p
                 # keep only the highest priority codes per compound code,
-                # examples: 
-                # C|I -> C 
+                # examples:
+                # C|I -> C
                 # N|U|I -> U
                 max_prio = max([max_prio, p])
 
@@ -377,11 +395,13 @@ class mRNACounter(BaseCounter):
 
         # print(f"gn={gn} gf={gf} -> res={res}")
         return res
-    
+
     def exon_intron_disambiguation(self, channels):
         return channels - set(["exonic_reads", "exonic_counts"])
 
+
 DefaultCounter = mRNACounter
+
 
 def sparse_summation(X, axis=0):
     # for csr_array this would be fine
@@ -459,24 +479,27 @@ class DGE:
             col_ind.append(ind_of_gene[gene])
 
         if (not len(row_ind)) or (not len(col_ind)):
-            self.logger.warning(f"empty indices len(row_ind)={len(row_ind)} len(col_ind)={len(col_ind)}")
+            self.logger.warning(
+                f"empty indices len(row_ind)={len(row_ind)} len(col_ind)={len(col_ind)}"
+            )
             return {}, [], []
 
         sparse_channels = OrderedDict()
         for channel in self.channels:
             counts = counts_by_channel[channel]
-            self.logger.debug(f"constructing sparse-matrix for channel '{channel}' from n={len(counts)} non-zero entries (sum={np.array(counts).sum()})")
-            m = scipy.sparse.csr_matrix(
-                (counts, (row_ind, col_ind)),
-                dtype=np.float32
+            self.logger.debug(
+                f"constructing sparse-matrix for channel '{channel}' from n={len(counts)} non-zero entries (sum={np.array(counts).sum()})"
             )
-            self.logger.debug(f"resulting sparse matrix shape={m.shape} len(obs)={len(obs)} len(var)={len(var)}")
+            m = scipy.sparse.csr_matrix((counts, (row_ind, col_ind)), dtype=np.float32)
+            self.logger.debug(
+                f"resulting sparse matrix shape={m.shape} len(obs)={len(obs)} len(var)={len(var)}"
+            )
             sparse_channels[channel] = m
 
         return sparse_channels, obs, var
 
     @staticmethod
-    def sparse_arrays_to_adata(channel_d, obs, var, main_channel='counts'):
+    def sparse_arrays_to_adata(channel_d, obs, var, main_channel="counts"):
         """_summary_
         Creates an AnnData object from sparse matrices in the channel_d dictionary. The main_channel
         will be assigned to adata.X, the others to adata.layers[channel].
@@ -497,7 +520,7 @@ class DGE:
 
         X = channel_d[main_channel]
         adata = anndata.AnnData(X, dtype=X.dtype)
-        adata.obs[f'n_counts'] = sparse_summation(adata.X, axis=1)
+        adata.obs[f"n_counts"] = sparse_summation(adata.X, axis=1)
         adata.obs_names = obs
         adata.var_names = var
 
@@ -505,9 +528,10 @@ class DGE:
             if channel != main_channel:
                 adata.layers[channel] = sparse
                 # add marginal counts
-                adata.obs[f'n_{channel}'] = sparse_summation(adata.layers[channel], axis=1)
+                adata.obs[f"n_{channel}"] = sparse_summation(
+                    adata.layers[channel], axis=1
+                )
 
         # number of genes detected in this cell
         adata.obs["n_genes"] = sparse_summation(adata.X > 0, axis=1)
         return adata
-

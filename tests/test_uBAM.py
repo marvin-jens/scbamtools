@@ -3,7 +3,7 @@ import multiprocessing as mp
 import pytest
 import sys
 import os
-from scbamtools.bin.fastq_to_uBAM import *
+from scbamtools.bin.uBAM import *
 
 
 scbamtools_dir = os.path.dirname(__file__) + "/../"
