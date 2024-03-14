@@ -1,2 +1,2 @@
-graft scbamtools/config 
+graft scbamtools/config
 include scbamtools/cython/types.pxd
