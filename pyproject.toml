@@ -19,8 +19,8 @@ classifiers = [
   "Development Status :: 3 - Alpha",
 
   # Indicate who your project is intended for
-  "Intended Audience :: Bioinformatics",
-  "Topic :: Software Development :: Build Tools",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
 
   # Pick your license as you wish (see also "license" above)
   "License :: OSI Approved :: MIT License",
