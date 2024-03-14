@@ -32,6 +32,7 @@ if __name__ == "__main__":
             "scbamtools.bin",
             "scbamtools.config",
         ],
+        package_data={"scbamtools/cython": ["kmers.pyx", "bctree.pyx", "types.pxd"]},
         # A list of compiler Directives is available at
         # https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html#compiler-directives
         # external to be compiled
