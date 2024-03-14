@@ -15,6 +15,7 @@ import mrfifo as mf
 # * save params to YAML in run-folder to document
 # * refactor into multiple modules?
 
+
 def FASTQ_src(src):
     from more_itertools import grouper
 
@@ -107,7 +108,7 @@ def quality_trim(fq_src, min_qual=20, phred_base=33):
 
 
 def render_to_sam(fq1, fq2, sam_out, args, **kwargs):
-    logger = util.setup_logging(args, "scbamtools.bin.fastq_to_uBAM.worker")
+    logger = util.setup_logging(args, "scbamtools.bin.uBAM.worker")
     logger.debug(
         f"starting up with fq1={fq1}, fq2={fq2} sam_out={sam_out} and args={args}"
     )
@@ -201,7 +202,7 @@ def main(args):
 
     # queues for communication between processes
     w = (
-        mf.Workflow("fastq_to_uBAM")
+        mf.Workflow("uBAM")
         # open reads2.fastq.gz
         .gz_reader(inputs=input_reads2, output=mf.FIFO("read2", "wb")).distribute(
             input=mf.FIFO("read2", "rt"),
@@ -243,8 +244,8 @@ def main(args):
         inputs=mf.FIFO("sam_{n}", "rt", n=args.parallel),
         chunk_size=args.chunk_size,
         custom_header=mf.util.make_SAM_header(
-            prog_id="fastq_to_uBAM",
-            prog_name="fastq_to_uBAM.py",
+            prog_id="uBAM",
+            prog_name="uBAM.py",
             prog_version=__version__,
             rg_name=args.sample,
         ),
@@ -303,7 +304,7 @@ def parse_args():
     import scbamtools.util as util
 
     parser = util.make_minimal_parser(
-        "fastq_to_uBAM.py",
+        "uBAM.py",
         description="Convert raw reads1 and reads2 FASTQ into a single BAM file with cell barcode and UMI as BAM-tags",
     )
     parser.add_argument(
@@ -396,7 +397,7 @@ def parse_args():
 
 def cmdline():
     args = parse_args()
-    util.setup_logging(args, name="scbamtools.bin.fastq_to_uBAM")
+    util.setup_logging(args, name="scbamtools.bin.uBAM")
 
     if not args.read2:
         raise ValueError("bam output requires --read2 parameter")
