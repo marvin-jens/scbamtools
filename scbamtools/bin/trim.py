@@ -265,9 +265,6 @@ def process_reads(input, output, args):
     flavor = AdapterFlavor(args)
     # TODO: paired-end processing
     for read in input:
-        # read_seq = read.query_sequence
-        # read_qual = read.query_qualities
-        # we got a string
         cols = read.split("\t")
         read_seq = cols[9]
         qual_str = cols[10]
@@ -280,15 +277,41 @@ def process_reads(input, output, args):
             cols[10] = qual_str[start:end]
 
             if tags:
-                cols[-1] = f"{cols[-1]}\t{tags}"
+                cols[-1] = f"{cols[-1].rstrip()}\t{tags}\n"
 
-            output.write("\t".join(cols) + "\n")
+            output.write("\t".join(cols))
 
     return {"stats": flavor.stats, "total": flavor.total, "lhist": flavor.lhist}
 
 
 def is_header(line):
     return line.startswith("@")
+
+
+import sys
+
+
+def update_header(input, output, progname="scbamtools", cmdline=" ".join(sys.argv)):
+    id_counter = defaultdict(int)
+    pp = ""
+    for header_line in input:
+        if header_line.startswith("@PG"):
+            parts = header_line.split("\t")
+            for part in parts[1:]:
+                k, v = part.split(":", maxsplit=1)
+                if k == "ID":
+                    pp = v
+                    id_counter[v] += 1
+
+        output.write(header_line)
+
+    pg_id = progname
+    if id_counter[pg_id] > 0:
+        pg_id += f".{id_counter[pg_id]}"
+
+    output.write(
+        f"@PG\tID:{pg_id}\tPN:{progname}\tPP:{pp}\tVN:{__version__}\tCL:{cmdline}\n"
+    )
 
 
 def main(args):
@@ -303,7 +326,7 @@ def main(args):
             chunk_size=1,
             header_detect_func=is_header,
             header_broadcast=False,
-            header_fifo=mf.FIFO("header", "wt"),
+            header_fifo=mf.FIFO("orig_header", "wt"),
         )
         .workers(
             input=mf.FIFO("dist{n}", "rt"),
@@ -312,9 +335,15 @@ def main(args):
             args=args,
             n=args.threads_work,
         )
+        .add_job(
+            func=update_header,
+            input=mf.FIFO("orig_header", "rt"),
+            output=mf.FIFO("new_header", "wt"),
+            progname="trim.py",
+        )
         .collect(
             inputs=mf.FIFO("out{n}", "rt", n=args.threads_work),
-            header_fifo=mf.FIFO("header", "rt"),
+            header_fifo=mf.FIFO("new_header", "rt"),
             output=mf.FIFO("out_sam", "wt"),
             chunk_size=1,
         )
