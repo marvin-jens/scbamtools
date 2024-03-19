@@ -14,7 +14,7 @@ def test_dropseq():
         scbamtools_dir + "test_data/adap_test.R1.fastq",
         "--read2",
         scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
-        "--out-bam",
+        "--bam-out",
         "/dev/null",
         # "--flavor", "dropseq",
     )
@@ -24,7 +24,7 @@ def test_single():
     ubam(
         "--read2",
         scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
-        "--out-bam",
+        "--bam-out",
         "/dev/null",
         """--cell='"ACGTACGTACGTACGT"'""",
     )
@@ -34,7 +34,7 @@ def test_minqual():
     ubam(
         "--read2",
         scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
-        "--out-bam",
+        "--bam-out",
         "/dev/null",
         "--min-qual",
         "30",
