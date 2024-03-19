@@ -5,7 +5,6 @@ import sys
 import os
 from scbamtools.bin.uBAM import *
 
-
 scbamtools_dir = os.path.dirname(__file__) + "/../"
 
 
@@ -25,7 +24,7 @@ def test_root(tmp_path_factory):
 
 def sm(*argc, expect_fail=False):
     sys.argv = [
-        "fastq_to_uBAM.py",
+        "uBAM.py",
     ] + list(argc)
     res = cmdline()
     print("got result", res)
@@ -46,10 +45,11 @@ def test_help():
 def test_dropseq():
     sm(
         "--read1",
-        scbamtools_dir + "test_data/reads_chr22_R1.fastq.gz",
+        scbamtools_dir + "test_data/adap_test.R1.fastq",
         "--read2",
-        scbamtools_dir + "test_data/reads_chr22_R2.fastq.gz",
+        scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
         "--out-bam",
+        "--flavor", "dropseq",
         "/dev/null",
     )
 
@@ -57,20 +57,20 @@ def test_dropseq():
 def test_single():
     sm(
         "--read2",
-        scbamtools_dir + "test_data/reads_chr22_R2.fastq.gz",
+        scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
         "--out-bam",
         "/dev/null",
-        """--cell='"A"'""",
+        """--cell='"ACGTACGTACGTACGT"'""",
     )
 
 
 def test_minqual():
     sm(
         "--read2",
-        scbamtools_dir + "test_data/reads_chr22_R2.fastq.gz",
+        scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
         "--out-bam",
         "/dev/null",
         "--min-qual",
         "30",
-        """--cell='"A"'""",
+        """--cell='"ACGTACGTACGTACGT"'""",
     )
