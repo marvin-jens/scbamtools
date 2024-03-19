@@ -305,7 +305,7 @@ def update_header(input, output, progname="scbamtools", cmdline=" ".join(sys.arg
 
         output.write(header_line)
 
-    pg_id = progname
+    pg_id = progname.split(".")[0]
     if id_counter[pg_id] > 0:
         pg_id += f".{id_counter[pg_id]}"
 
@@ -381,7 +381,11 @@ def main(args):
     #             f.write(f"L_final\t{k}\t{v}\t{100.0 * v/stats['N_kept']:.2f}\n")
 
 
-if __name__ == "__main__":
+def cmdline():
     args = parse_cmdline()
     util.setup_logging(args)
     main(args)
+
+
+if __name__ == "__main__":
+    cmdline()
