@@ -257,7 +257,7 @@ def main(args):
     w.funnel(
         func=mf.parts.bam_writer,  # mf.parts.null_writer, #
         input=mf.FIFO("sam_combined", "rt"),
-        output=args.out_bam,
+        output=args.bam_out,
         _manage_fifos=False,
         fmt="Sbh",
         threads=16,
@@ -336,7 +336,7 @@ def parse_args():
         help="read1 and read2 are paired end mates and store both in the BAM",
     )
     parser.add_argument(
-        "--out-bam",
+        "--bam-out",
         default="/dev/stdout",
         help="output for unaligned BAM records (default=/dev/stdout) ",
     )
