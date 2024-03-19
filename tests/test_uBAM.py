@@ -1,61 +1,27 @@
-import multiprocessing as mp
-
-import pytest
-import sys
-import os
-from scbamtools.bin.uBAM import *
-
-scbamtools_dir = os.path.dirname(__file__) + "/../"
-
-
-@pytest.fixture(scope="session")
-def test_root(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("root")
-    sm_path = os.path.dirname(__file__)
-    # make a tmp-copy of the test_config.yaml
-    # def_config = os.path.join(sm_path, "../test_data/test_config.yaml")
-    # os.system(f"cp {def_config} {tmp / 'config.yaml'}")
-
-    # test_pdf =  os.path.join(sm_path, "../test_data/test_project_df.csv")
-    # os.system(f"cp {test_pdf} {tmp / 'project_df.csv'}")
-
-    return tmp
-
-
-def sm(*argc, expect_fail=False):
-    sys.argv = [
-        "uBAM.py",
-    ] + list(argc)
-    res = cmdline()
-    print("got result", res)
-
-    if expect_fail:
-        assert isinstance(res, Exception) == True
-    else:
-        assert isinstance(res, Exception) == False
+from fixtures import *
 
 
 def test_help():
     try:
-        sm("--help")
+        ubam("--help")
     except SystemExit:
         pass
 
 
 def test_dropseq():
-    sm(
+    ubam(
         "--read1",
         scbamtools_dir + "test_data/adap_test.R1.fastq",
         "--read2",
         scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
         "--out-bam",
-        "--flavor", "dropseq",
         "/dev/null",
+        # "--flavor", "dropseq",
     )
 
 
 def test_single():
-    sm(
+    ubam(
         "--read2",
         scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
         "--out-bam",
@@ -65,7 +31,7 @@ def test_single():
 
 
 def test_minqual():
-    sm(
+    ubam(
         "--read2",
         scbamtools_dir + "test_data/adap_test.R2.fastq.gz",
         "--out-bam",
