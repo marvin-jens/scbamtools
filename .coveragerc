@@ -3,6 +3,10 @@ concurrency = multiprocessing
 parallel = true
 sigterm = true
 omit = "tests/*"
+source = 
+  "scbamtools"
+  "scbamtools.bin"
+  "scbamtools.cython"
 
 [report]
 show_missing = true
