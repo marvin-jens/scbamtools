@@ -1,27 +1,12 @@
 from scbamtools.contrib import __version__, __license__, __author__, __email__
 import numpy as np
-
 from collections import defaultdict
-
 import mrfifo as mf
-
-# from scbamtools.parallel import (
-#     put_or_abort,
-#     queue_iter,
-#     join_with_empty_queues,
-#     chunkify,
-#     ExceptionLogging,
-#     log_qerr,
-# )
 import scbamtools.util as util
 import scbamtools.config as config
-from time import time
-import pysam
-import logging
-import os
 
 
-def parse_cmdline():
+def parse_args():
     parser = util.make_minimal_parser(
         prog="trim.py",
         description="trim adapters from a BAM file using cutadapt",
@@ -85,12 +70,6 @@ def parse_cmdline():
         help="write tab-separated table with trimming results here",
         default="",
     )
-
-    # parser.add_argument(
-    #     "--config",
-    #     help="path to custom config.yaml with additional or modified flavors (see default_config.yaml)",
-    #     default="",
-    # )
     args = parser.parse_args()
     return config.load(args.config, args=vars(args))
 
@@ -284,36 +263,6 @@ def process_reads(input, output, args):
     return {"stats": flavor.stats, "total": flavor.total, "lhist": flavor.lhist}
 
 
-def is_header(line):
-    return line.startswith("@")
-
-
-import sys
-
-
-def update_header(input, output, progname="scbamtools", cmdline=" ".join(sys.argv)):
-    id_counter = defaultdict(int)
-    pp = ""
-    for header_line in input:
-        if header_line.startswith("@PG"):
-            parts = header_line.split("\t")
-            for part in parts[1:]:
-                k, v = part.split(":", maxsplit=1)
-                if k == "ID":
-                    pp = v
-                    id_counter[v] += 1
-
-        output.write(header_line)
-
-    pg_id = progname.split(".")[0]
-    if id_counter[pg_id] > 0:
-        pg_id += f".{id_counter[pg_id]}"
-
-    output.write(
-        f"@PG\tID:{pg_id}\tPN:{progname}\tPP:{pp}\tVN:{__version__}\tCL:{cmdline}\n"
-    )
-
-
 def main(args):
     logger = util.setup_logging(args, name="scbamtools.cutadapt_bam.main")
 
@@ -336,7 +285,7 @@ def main(args):
             n=args.threads_work,
         )
         .add_job(
-            func=update_header,
+            func=util.update_header,
             input=mf.FIFO("orig_header", "rt"),
             output=mf.FIFO("new_header", "wt"),
             progname="trim.py",
@@ -357,8 +306,6 @@ def main(args):
         )
         .run()
     )
-    # header=util.make_header(bam_in, progname=os.path.basename(__file__)),
-
     # stats = defaultdict(int)
     # total = defaultdict(int)
     # lhist = defaultdict(int)
@@ -382,7 +329,7 @@ def main(args):
 
 
 def cmdline():
-    args = parse_cmdline()
+    args = parse_args()
     util.setup_logging(args)
     main(args)
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 default_log_level = "INFO"
 
@@ -78,3 +79,29 @@ def make_minimal_parser(prog="", usage="", **kw):
         "--sample", default="sample_NA", help="sample_id (where applicable)"
     )
     return parser
+
+
+def update_header(input, output, progname="scbamtools", cmdline=" ".join(sys.argv)):
+    from collections import defaultdict
+    from scbamtools.contrib import __version__
+
+    id_counter = defaultdict(int)
+    pp = ""
+    for header_line in input:
+        if header_line.startswith("@PG"):
+            parts = header_line.split("\t")
+            for part in parts[1:]:
+                k, v = part.split(":", maxsplit=1)
+                if k == "ID":
+                    pp = v
+                    id_counter[v] += 1
+
+        output.write(header_line)
+
+    pg_id = progname.split(".")[0]
+    if id_counter[pg_id] > 0:
+        pg_id += f".{id_counter[pg_id]}"
+
+    output.write(
+        f"@PG\tID:{pg_id}\tPN:{progname}\tPP:{pp}\tVN:{__version__}\tCL:{cmdline}\n"
+    )
