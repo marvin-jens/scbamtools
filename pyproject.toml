@@ -28,7 +28,7 @@ classifiers = [
 dependencies = [
   "mrfifo",
   "cython",
-  "numpy"
+  "numpy",
 ]
 
 #project.optional_dependencies]
