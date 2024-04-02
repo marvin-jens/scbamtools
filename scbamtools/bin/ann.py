@@ -109,11 +109,11 @@ def annotate_SAM(input, output, compiled_annotation):
         gt = None
         if not is_unmapped:
             chrom = sam[2]
-            pos = sam[3]
+            pos = int(sam[3]) - 1  # SAM uses one-based coordinates!!!
             cigar = sam[5]
             strand = "-" if (flags & 16) else "+"
             gn, gf, gt = ga.get_annotation_tags(
-                chrom, strand, blocks_from_cigar(cigar), pos=pos
+                chrom, strand, blocks_from_cigar(cigar, pos=pos)
             )
 
         tag_str = f"\tgn:Z:{gn}\tgf:Z:{gf}\tgt:Z:{gt}\n"
