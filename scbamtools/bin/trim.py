@@ -273,7 +273,7 @@ def main(args):
             input=mf.FIFO("input_sam", "rt"),
             outputs=mf.FIFO("dist{n}", "wt", n=args.threads_work),
             chunk_size=1,
-            header_detect_func=is_header,
+            header_detect_func=util.is_header,
             header_broadcast=False,
             header_fifo=mf.FIFO("orig_header", "wt"),
         )
