@@ -105,3 +105,61 @@ def update_header(input, output, progname="scbamtools", cmdline=" ".join(sys.arg
     output.write(
         f"@PG\tID:{pg_id}\tPN:{progname}\tPP:{pp}\tVN:{__version__}\tCL:{cmdline}\n"
     )
+
+
+def generate_kmers(k, nts="ACGT"):
+    if k == 0:
+        yield ""
+    elif k > 0:
+        for x in nts:
+            for mer in generate_kmers(k - 1, nts=nts):
+                yield x + mer
+
+
+COMPLEMENT = {
+    "a": "t",
+    "t": "a",
+    "c": "g",
+    "g": "c",
+    "k": "m",
+    "m": "k",
+    "r": "y",
+    "y": "r",
+    "s": "s",
+    "w": "w",
+    "b": "v",
+    "v": "b",
+    "h": "d",
+    "d": "h",
+    "n": "n",
+    "A": "T",
+    "T": "A",
+    "C": "G",
+    "G": "C",
+    "K": "M",
+    "M": "K",
+    "R": "Y",
+    "Y": "R",
+    "S": "S",
+    "W": "W",
+    "B": "V",
+    "V": "B",
+    "H": "D",
+    "D": "H",
+    "N": "N",
+    "-": "-",
+    "=": "=",
+    "+": "+",
+}
+
+
+def complement(s):
+    return "".join([COMPLEMENT[x] for x in s])
+
+
+def rev_comp(seq):
+    return complement(seq)[::-1]
+
+
+def is_header(line):
+    return line.startswith("@")
