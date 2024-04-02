@@ -7,7 +7,7 @@ omit =
 
 [report]
 show_missing = true
-include = "scbamtools/*"
+#include = "scbamtools/*"
 
-[html]
-include = "scbamtools/*"
+#[html]
+#include = "scbamtools/*"
