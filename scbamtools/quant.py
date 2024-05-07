@@ -156,7 +156,7 @@ class BaseCounter:
     def select_alignment(self, bundle):
         return None
 
-    def select_gene(self, chrom, strand, gn, gf, score):
+    def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
         if len(gn) == 1:
             return gn[0], gf[0]
         else:
@@ -202,8 +202,51 @@ class BaseCounter:
     def unique_alignment(self, bundle):
         return bundle[0]
 
+    def bundles_from_SAM(self, sam_input):
+        import re
+
+        def extract(cols):
+            # yield chrom, strand, gn, gf, score
+            chrom = cols[2]
+            strand = "-" if int(cols[3]) & 16 else "+"
+            gn = "-"
+            gf = "-"
+            AS = -1
+            CB = "-"
+            MI = "-"
+
+            for c in cols[11:]:
+                if c.startswith("gn"):
+                    gn = c[5:]
+                elif c.startswith("gf"):
+                    gf = c[5:]
+                elif c.startswith("AS"):
+                    AS = int(c[5:])
+                elif c.startswith("MI"):
+                    MI = c[5:]
+                elif c.startswith("CB"):
+                    CB = c[5:]
+
+            return CB, MI, chrom, strand, gn, gf, AS
+
+        bundle = []
+        last_qname = ""
+        for sam in sam_input:
+            cols = sam.rstrip().split("\t")
+            qname = cols[0]
+            if qname != last_qname:
+                if bundle:
+                    yield bundle
+
+                bundle = []
+                last_qname = qname
+            bundle.append(extract(cols))
+
+        if bundle:
+            yield bundle
+
     ## main function: alignment bundle -> counting channels
-    def process_bam_bundle(self, cell, umi, bundle):
+    def process_bundle(self, bundle):
         gene = None
         selected = None
         channels = set()
@@ -222,7 +265,7 @@ class BaseCounter:
 
         if selected:
             self.stats["N_aln_countable"] += 1
-            chrom, strand, gn, gf, score = selected
+            cell, umi, chrom, strand, gn, gf, score = selected
             # self.stats[f'N_aln_{chrom}'] += 1
             self.stats[f"N_aln_{strand}"] += 1
 
@@ -265,8 +308,12 @@ class BaseCounter:
 
                 if not channels:
                     self.stats[f"N_channel_NONE"] += 1
+        else:
+            cell = "-"
+            gene = "-"
+            channels = set()
 
-        return gene, channels
+        return cell, gene, channels
 
 
 class CustomIndexCounter(BaseCounter):
@@ -398,6 +445,21 @@ class mRNACounter(BaseCounter):
 
     def exon_intron_disambiguation(self, channels):
         return channels - set(["exonic_reads", "exonic_counts"])
+
+
+class SLAC_miRNACounter(BaseCounter):
+
+    logger = logging.getLogger("scbamtools.quant.SLAC_miRNACounter")
+
+    def unique_alignment(self, bundle):
+        CB, MI, chrom, strand, _, _, score = bundle[0]
+        return (CB, MI, chrom, strand, [chrom], ["N"], score)
+
+    def select_alignment(self, bundle):
+        # only consider alignments on the + strand (for custom indices)
+        plus = [b for b in bundle if b[1] == "+"]
+        if plus:
+            return self.unique_alignment(plus)
 
 
 DefaultCounter = mRNACounter
