@@ -30,8 +30,11 @@ def load(config_file="", load_defaults=True, args={}):
     config = default.copy()
 
     if config_file:
-        user_config = load(open(config_file), Loader=Loader)
-        config = recursive_update(config, user_config)
+        try:
+            user_config = load(open(config_file), Loader=Loader)
+            config = recursive_update(config, user_config)
+        except FileNotFoundError:
+            pass
 
     if args:
         config = recursive_update(config, args)
