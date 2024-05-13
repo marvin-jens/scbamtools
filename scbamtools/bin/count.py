@@ -56,7 +56,7 @@ def parse_cmdline():
         default="default",
     )
     parser.add_argument(
-        "--cell-bc-allowlist",
+        "--cell-bc-allow-list",
         help="[OPTIONAL] a text file with cell barcodes. All barcodes not in the list are ignored.",
         default="",
     )
@@ -90,10 +90,15 @@ def parse_cmdline():
 
 
 def get_counter_class(classpath):
-    mod, cls = classpath.rsplit(".", 1)
-    import importlib
 
-    m = importlib.import_module(mod)
+    if "." in classpath:
+        mod, cls = classpath.rsplit(".", 1)
+        import importlib
+
+        m = importlib.import_module(mod)
+    else:
+        m = globals().get(classpath)
+
     return getattr(m, cls)
 
 
@@ -343,31 +348,35 @@ def simple_check(input, output="/dev/stdout"):
     return n
 
 
-def sam_to_DGE(input, args):
+def sam_to_DGE(input, channels=[], cell_bc_allow_list="", **kw):
     import scbamtools.quant
 
-    configs, channels = get_config_for_refs(args)
+    # configs, channels = get_config_for_refs(args)
 
-    dge = scbamtools.quant.DGE(channels=channels)
-    dge.load_list(args.BC_allow_list)
+    dge = scbamtools.quant.DGE(channels=channels, cell_bc_allow_list=cell_bc_allow_list)
 
     counter = scbamtools.quant.SLAC_miRNACounter()
     for bundle in counter.bundles_from_SAM(input):
         cell, gene, channels = counter.process_bundle(bundle)
         if cell != "-":
-            DGE.add_read(cell, gene, channels)
+            dge.add_read(cell, gene, channels)
 
     return dge.make_sparse_arrays()
 
 
 def main(args):
-    print(get_config_for_refs(args))
+    configs, channels = get_config_for_refs(args)
+    # from pprint import pprint
+
+    # pprint(configs)
+
     # from scbamtools.parallel import parallel_BAM_workflow
     util.ensure_path(args.output + "/")
 
     logger = util.setup_logging(args, f"scbamtools.quant.main")
     logger.info("startup")
 
+    config = configs["*"]
     w = (
         mf.Workflow("count", total_pipe_buffer_MB=args.pipe_buffer_size)
         .BAM_reader(
@@ -385,28 +394,37 @@ def main(args):
         .workers(
             func=sam_to_DGE,
             input=mf.FIFO("dist_{n}", "r"),
-            args=args,
+            channels=channels,
+            cell_bc_allow_list=args.cell_bc_allow_list,
             n=args.worker_threads,
         )
         .run()
     )
 
-    n_processed = 0
-    for name, res in w.result_dict.items():
-        print(name, res)
-        if name.startswith("count.worker"):
-            n_processed += res
-    print(n_processed)
+    from scbamtools.quant import DGE
 
-    # stats = parallel_BAM_workflow(
-    #     args.bam_in,
-    #     bundle_processor,
-    #     DGE_counter,
-    #     n_workers=args.parallel,
-    #     buffer_size=args.buffer_size,
-    #     log_domain="scbamtools.quant",
-    #     args=args,
-    # )
+    adata_shards = []
+    for name, res in w.result_dict.items():
+        print(name, "retrieving adata object")
+        if name.startswith("count.worker"):
+            channel_d, obs_names, var_names = res
+            adata = DGE.sparse_arrays_to_adata(channel_d, obs_names, var_names)
+            adata_shards.append(adata)
+
+    import anndata
+
+    adata = anndata.concat(
+        adata_shards, axis=0, join="outer", merge="unique", uns_merge="first"
+    )
+    # number of molecules counted for this cell
+    adata.obs[f"n_counts"] = sparse_summation(adata.X, axis=1)
+    # number of genes detected in this cell
+    adata.obs["n_genes"] = sparse_summation(adata.X > 0, axis=1)
+    for channel in adata.layers.keys():
+        adata.obs[f"n_{channel}"] = sparse_summation(adata.layers[channel], axis=1)
+
+    adata.write_h5ad(args.dge_out)
+    return adata
 
     # if not stats:
     #     return -1

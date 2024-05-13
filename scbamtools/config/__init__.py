@@ -15,6 +15,8 @@ def load(config_file="", load_defaults=True, args={}):
     #     for k, v in d.items():
     #         if type(v) is dict:
     # d[k] = Namespace()
+    args_ns = Namespace(**args)
+
     def recursive_update(dst, src):
         for k, v in src.items():
             if type(v) is dict:
@@ -22,6 +24,11 @@ def load(config_file="", load_defaults=True, args={}):
             # elif type(v) is list:
             #     dst[k] = dst.get(k, []).extend(v)
             else:
+                if type(v) is str and "{" in v:
+                    # attempt to expand variables
+                    # print(v, args)
+                    v = v.format(args=args_ns)
+
                 dst[k] = v
         return dst
 

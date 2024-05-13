@@ -11,7 +11,7 @@ import scbamtools.util as util
 import mrfifo as mf
 
 # TODO:
-# * load params from YAML (code from opseq)
+# * load params from YAML
 # * save params to YAML in run-folder to document
 # * refactor into multiple modules?
 

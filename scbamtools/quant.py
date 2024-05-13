@@ -479,12 +479,12 @@ def sparse_summation(X, axis=0):
 class DGE:
     logger = logging.getLogger("scbamtools.quant.DGE")
 
-    def __init__(self, channels=["count"], cell_bc_allowlist=""):
+    def __init__(self, channels=["count"], cell_bc_allow_list=""):
         self.channels = channels
         self.counts = defaultdict(lambda: defaultdict(int))
         self.DGE_cells = set()
         self.DGE_genes = set()
-        self.allowed_bcs = self.load_list(cell_bc_allowlist)
+        self.allowed_bcs = self.load_list(cell_bc_allow_list)
 
     @staticmethod
     def load_list(fname):
@@ -495,7 +495,7 @@ class DGE:
         else:
             DGE.logger.debug("all barcodes allowed")
 
-    def add_read(self, gene, cell, channels=["count"]):
+    def add_read(self, cell, gene, channels=["count"]):
         if channels:
             if self.allowed_bcs and not (cell in self.allowed_bcs):
                 # print(f"discarding '{cell}' as NA", cell in self.allowed_bcs)
@@ -581,8 +581,7 @@ class DGE:
         import anndata
 
         X = channel_d[main_channel]
-        adata = anndata.AnnData(X, dtype=X.dtype)
-        adata.obs[f"n_counts"] = sparse_summation(adata.X, axis=1)
+        adata = anndata.AnnData(X)
         adata.obs_names = obs
         adata.var_names = var
 
@@ -594,6 +593,8 @@ class DGE:
                     adata.layers[channel], axis=1
                 )
 
+        # number of molecules counted for this cell
+        adata.obs[f"n_counts"] = sparse_summation(adata.X, axis=1)
         # number of genes detected in this cell
         adata.obs["n_genes"] = sparse_summation(adata.X > 0, axis=1)
         return adata
