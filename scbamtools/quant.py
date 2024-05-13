@@ -391,21 +391,21 @@ class mRNACounter(BaseCounter):
         n_top = 0
         kept = None
 
-        for chrom, strand, gn, gf, score in bundle:
+        for CB, MI, chrom, strand, gn, gf, score in bundle:
             p = get_prio(gf)
             if p > top_prio:
                 top_prio = p
-                kept = (chrom, strand, gn, gf, score)
+                kept = (CB, MI, chrom, strand, gn, gf, score)
                 n_top = 1
             elif p == top_prio:
                 n_top += 1
-                kept = (chrom, strand, gn, gf, score)
+                kept = (CB, MI, chrom, strand, gn, gf, score)
 
         if n_top == 1:
             return kept
 
     ## Gene selection strategy, similar to alignment selection
-    def select_gene(self, chrom, strand, gn, gf, score):
+    def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
         # let's see if we can prioritize which gene we are interested in
         gene_prio = defaultdict(int)
         gene_gf = defaultdict(set)
