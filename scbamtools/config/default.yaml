@@ -165,5 +165,8 @@ quant:
     channels: 
       - "counts"
       - "reads"
+
+  SLAC:
+    counter_class: "scbamtools.quant.SLAC_miRNACounter"
 #      - "exonic_counts"
 #      - "exonic_reads"

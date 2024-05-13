@@ -135,6 +135,7 @@ class BaseCounter:
     ):
 
         self.kw = kw
+        self.filter_sam_records = None  # can be set to a callable which may perform arbitrary filter operations on the SAM columns
         self.channels = channels
         self.exonic_set = set(exonic_tags)
         self.intronic_set = set(intronic_tags)
@@ -233,6 +234,10 @@ class BaseCounter:
         last_qname = ""
         for sam in sam_input:
             cols = sam.rstrip().split("\t")
+            if self.filter_sam_records:
+                if not self.filter_sam_records(cols):
+                    continue
+
             qname = cols[0]
             if qname != last_qname:
                 if bundle:
@@ -321,8 +326,8 @@ class CustomIndexCounter(BaseCounter):
     logger = logging.getLogger("scbamtools.quant.CustomIndexCounter")
 
     def unique_alignment(self, bundle):
-        chrom, strand, _, _, score = bundle[0]
-        return (chrom, strand, [chrom], ["N"], score)
+        CB, MI, chrom, strand, _, _, score = bundle[0]
+        return (CB, MI, chrom, strand, [chrom], ["N"], score)
 
     def select_alignment(self, bundle):
         # only consider alignments on the + strand (for custom indices)
@@ -450,6 +455,56 @@ class mRNACounter(BaseCounter):
 class SLAC_miRNACounter(BaseCounter):
 
     logger = logging.getLogger("scbamtools.quant.SLAC_miRNACounter")
+
+    def __init__(
+        self, *argc, max_5p_soft_clip=5, max_3p_soft_clip=None, min_matches=15, **kwargs
+    ):
+        super().__init__(self, *argc, **kwargs)
+        self.max_5p_soft_clip = max_5p_soft_clip
+        self.max_3p_soft_clip = max_3p_soft_clip
+        self.min_matches = min_matches
+        self.filter_sam_records = self.cigar_filter
+
+    def cigar_filter(self, cols):
+        import re
+
+        matches = 0
+        cigar = cols[5]
+        cigar_ops = re.findall(r"(\d+)(\w)", cigar)
+
+        # check 5' most operation
+        n, o = cigar_ops.pop(0)
+        n = int(n)
+        if o == "S":
+            if n > self.max_5p_soft_clip:
+                self.stats["CIGAR_excessive_5p_clipping"] += 1
+                return False
+        elif o == "M":
+            matches += n
+
+        if cigar_ops and (self.max_3p_soft_clip is not None):
+            # check 3' most operation
+            n, o = cigar_ops.pop(-1)
+            n = int(n)
+            if o == "S":
+                if n > self.max_3p_soft_clip:
+                    self.stats["CIGAR_excessive_3p_clipping"] += 1
+                    return False
+            elif o == "M":
+                # assume it is 'M'
+                matches += n
+
+        if self.min_matches is not None:
+            if cigar_ops:
+                for n, o in cigar_ops:
+                    if o == "M":
+                        matches += int(n)
+
+            if matches <= self.min_matches:
+                self.stats["CIGAR_insufficient_match"] += 1
+                return False
+
+        return True
 
     def unique_alignment(self, bundle):
         CB, MI, chrom, strand, _, _, score = bundle[0]

@@ -138,17 +138,6 @@ def render_to_sam(fq1, fq2, sam_out, args, **kwargs):
     else:
         ingress = iter_single(fq2)
 
-    # TODO:
-    # decide how we want to handle multiple input files
-    # somehow I prefer sequential processing over complicated state-change
-    # question is, how do we keep the output sam from being closed?
-    # ideally, insert a serializer there and provide a way to join() some processes before starting new
-    # ones... (needs thinking)
-    # kw = vars(args)
-    # # kw.update(par)
-    # import argparse
-    # args = argparse.Namespace(**kw)
-
     N = mf.util.CountDict()
 
     fmt = make_formatter_from_args(args)  # , **params
