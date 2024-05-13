@@ -168,5 +168,8 @@ quant:
 
   SLAC:
     counter_class: "scbamtools.quant.SLAC_miRNACounter"
+    min_matches: 13
+    max_5p_soft_clip: 5
+      #    max_3p_soft_clip: None
 #      - "exonic_counts"
 #      - "exonic_reads"

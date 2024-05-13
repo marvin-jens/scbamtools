@@ -200,9 +200,6 @@ class BaseCounter:
 
         return channels
 
-    def unique_alignment(self, bundle):
-        return bundle[0]
-
     def bundles_from_SAM(self, sam_input):
         import re
 
@@ -233,6 +230,7 @@ class BaseCounter:
         bundle = []
         last_qname = ""
         for sam in sam_input:
+            self.stats["SAM_records_total"] += 1
             cols = sam.rstrip().split("\t")
             if self.filter_sam_records:
                 if not self.filter_sam_records(cols):
@@ -252,6 +250,7 @@ class BaseCounter:
 
     ## main function: alignment bundle -> counting channels
     def process_bundle(self, bundle):
+        self.stats["SAM_bundles_total"] += 1
         gene = None
         selected = None
         channels = set()
@@ -504,6 +503,7 @@ class SLAC_miRNACounter(BaseCounter):
                 self.stats["CIGAR_insufficient_match"] += 1
                 return False
 
+        self.stats["CIGAR_pass"] += 1
         return True
 
     def unique_alignment(self, bundle):
@@ -512,9 +512,26 @@ class SLAC_miRNACounter(BaseCounter):
 
     def select_alignment(self, bundle):
         # only consider alignments on the + strand (for custom indices)
-        plus = [b for b in bundle if b[1] == "+"]
-        if plus:
-            return self.unique_alignment(plus)
+        best_score = 0
+        best_score_aln = None
+        best_score_tie = 0
+
+        for aln in bundle:
+            CB, MI, chrom, strand, gn, gf, score = aln
+            if strand == "+":
+                if score > best_score:
+                    best_score = score
+                    best_score_aln = CB, MI, chrom, strand, [chrom], ["N"], score
+                    best_score_tie = 1
+                elif score == best_score:
+                    best_score_tie += 1
+
+        if best_score_tie == 1:
+            return best_score_aln
+
+    def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
+        # print(CB, MI, chrom, gn, gf)
+        return [chrom], ["N"]
 
 
 DefaultCounter = mRNACounter

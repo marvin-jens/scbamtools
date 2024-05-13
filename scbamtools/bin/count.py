@@ -236,20 +236,31 @@ def sam_to_DGE(input, channels=[], cell_bc_allow_list="", config={}, **kw):
         if cell != "-":
             dge.add_read(cell, gene, channels)
 
-    return dge.make_sparse_arrays()
+    channel_d, obs_names, var_names = dge.make_sparse_arrays()
+    return {
+        "channel_d": channel_d,
+        "obs_names": obs_names,
+        "var_names": var_names,
+        "counter_stats": counter.stats,
+    }
 
 
 def main(args):
     from scbamtools.quant import DGE
     import anndata
+    import pandas as pd
+    from time import time
 
     configs, channels = get_config_for_refs(args)
 
     logger = util.setup_logging(args, f"scbamtools.count.main")
-    logger.info("startup")
+    logger.debug("startup")
 
     adata_refs = []
     util.ensure_path(args.output + "/")
+
+    t0 = time()
+    stats = []
     for input in args.bam_in:
         ref = os.path.basename(input).split(".")[0]
         logger.info(f"processing alignments from {input} -> ref={ref}")
@@ -288,22 +299,36 @@ def main(args):
 
         # collect the counts and make one AnnData object
         adata_shards = []
+        from collections import defaultdict
+
+        counter_stats = defaultdict(int)
+        counter_stats["ref"] = ref
+        counter_stats["config"] = config["name"]
+
         for name, res in w.result_dict.items():
-            print(name, "retrieving adata object")
             if name.startswith("count.worker"):
-                channel_d, obs_names, var_names = res
-                adata = DGE.sparse_arrays_to_adata(channel_d, obs_names, var_names)
-                adata.obs["worker"] = name
+                adata = DGE.sparse_arrays_to_adata(
+                    res["channel_d"], res["obs_names"], res["var_names"]
+                )
+                # adata.obs["worker"] = name
                 adata_shards.append(adata)
 
+                for k, n in res["counter_stats"].items():
+                    counter_stats[k] += n
+
+        # compile one adata object for all barcode-prefix shards by concatenating on obs (cell barcodes)
         adata = anndata.concat(
             adata_shards, axis=0, join="outer", merge="unique", uns_merge="first"
         )
         adata.var["reference"] = ref
+        adata.var["reference"] = pd.Categorical(adata.var["reference"])
         adata.obs[f"n_{ref}_counts"] = sparse_summation(adata.X, axis=1)
         adata_refs.append(adata)
-        adata.write_h5ad(f"{ref}.h5ad")
+        # adata.write_h5ad(f"{ref}.h5ad")
 
+        stats.append(counter_stats)
+
+    # compile one adata object for all BAM files by concatenating on vars (genes)
     adata = anndata.concat(
         adata_refs, axis=1, join="outer", merge="unique", uns_merge="first"
     )
@@ -316,13 +341,20 @@ def main(args):
         adata.obs[f"n_{channel}"] = sparse_summation(adata.layers[channel], axis=1)
 
     adata.write_h5ad(args.dge_out)
+
+    # store counting statistics
+    df_stats = pd.DataFrame(stats)
+    df_stats["sample"] = args.sample
+    df_stats = df_stats[sorted(df_stats.columns)].fillna(0)
+    # print(df_stats.T)
+    df_stats.to_csv(args.stats_out, sep="\t", index=False)
+
+    dt = time() - t0
+    n_total = df_stats["SAM_records_total"].sum()
+    logger.info(
+        f"finished counting {n_total/1E6:.2f}M SAM records in {dt:.1f} seconds ({n_total/dt/1E6:.3f}M/sec)."
+    )
     return adata
-
-    # if not stats:
-    #     return -1
-
-    # if args.out_stats:
-    #     stats.save_stats(args.out_stats.format(**locals()))
 
 
 if __name__ == "__main__":
