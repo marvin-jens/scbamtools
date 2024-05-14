@@ -297,14 +297,14 @@ def main(args):
             .run()
         )
 
-        # collect the counts and make one AnnData object
-        adata_shards = []
         from collections import defaultdict
 
         counter_stats = defaultdict(int)
         counter_stats["ref"] = ref
         counter_stats["config"] = config["name"]
 
+        # collect the counts and make one AnnData object
+        adata_shards = []
         for name, res in w.result_dict.items():
             if name.startswith("count.worker"):
                 adata = DGE.sparse_arrays_to_adata(
@@ -347,11 +347,20 @@ def main(args):
         adata.obs[f"n_{channel}"] = sparse_summation(adata.layers[channel], axis=1)
         adata.var[f"n_{channel}"] = sparse_summation(adata.layers[channel], axis=0)
 
+    # total counts for a gene across all cells
+    adata.var[f"n_counts"] = sparse_summation(adata.X, axis=0)
+    # number of cells with at least one count for the gene
+    adata.var[f"n_cells"] = sparse_summation(adata.X > 0, axis=0)
+
+    adata.obs.index.name = "cell_bc"
+    adata.var.index.name = "gene"
     adata.write_h5ad(args.dge_out)
 
     # store marginals
-    adata.obs.to_csv(args.summary_out, sep="\t")
-    adata.var.to_csv(args.bulk_out, sep="\t")
+    adata.obs.sort_values("n_counts", ascending=False).to_csv(
+        args.summary_out, sep="\t"
+    )
+    adata.var.sort_values("n_counts", ascending=False).to_csv(args.bulk_out, sep="\t")
 
     # store counting statistics
     df_stats = pd.DataFrame(stats)
