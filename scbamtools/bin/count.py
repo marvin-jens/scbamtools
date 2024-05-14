@@ -320,11 +320,17 @@ def main(args):
         adata = anndata.concat(
             adata_shards, axis=0, join="outer", merge="unique", uns_merge="first"
         )
+        adata.obs_names_make_unique()
+        # need to add up everything that is 'NA-x'
+        na_mask = np.array([o.startswith("NA-") for o in adata.obs_names])
+        na = adata[na_mask].X.sum(axis=0)
+        adata = adata[~na_mask].copy()
+        adata["NA"] = na
         adata.var["reference"] = ref
         adata.var["reference"] = pd.Categorical(adata.var["reference"])
         adata.obs[f"n_{ref}_counts"] = sparse_summation(adata.X, axis=1)
         adata_refs.append(adata)
-        # adata.write_h5ad(f"{ref}.h5ad")
+        adata.write_h5ad(f"{ref}.h5ad")
 
         stats.append(counter_stats)
 
@@ -339,8 +345,13 @@ def main(args):
     adata.obs["n_genes"] = sparse_summation(adata.X > 0, axis=1)
     for channel in adata.layers.keys():
         adata.obs[f"n_{channel}"] = sparse_summation(adata.layers[channel], axis=1)
+        adata.var[f"n_{channel}"] = sparse_summation(adata.layers[channel], axis=0)
 
     adata.write_h5ad(args.dge_out)
+
+    # store marginals
+    adata.obs.to_csv(args.summary_out, sep="\t")
+    adata.var.to_csv(args.bulk_out, sep="\t")
 
     # store counting statistics
     df_stats = pd.DataFrame(stats)

@@ -401,6 +401,7 @@ class mRNACounter(BaseCounter):
                 kept = (CB, MI, chrom, strand, gn, gf, score)
 
         if n_top == 1:
+            print(kept)
             return kept
 
     ## Gene selection strategy, similar to alignment selection
