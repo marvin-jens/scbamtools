@@ -460,16 +460,28 @@ class SLAC_miRNACounter(BaseCounter):
     logger = logging.getLogger("scbamtools.quant.SLAC_miRNACounter")
 
     def __init__(
-        self, *argc, max_5p_soft_clip=5, max_3p_soft_clip=None, min_matches=15, **kwargs
+        self,
+        *argc,
+        max_5p_soft_clip=5,
+        max_3p_soft_clip=None,
+        min_matches=15,
+        max_pos=3,
+        **kwargs,
     ):
         super().__init__(self, *argc, **kwargs)
         self.max_5p_soft_clip = max_5p_soft_clip
         self.max_3p_soft_clip = max_3p_soft_clip
         self.min_matches = min_matches
+        self.max_pos = max_pos
         self.filter_sam_records = self.cigar_filter
 
     def cigar_filter(self, cols):
         import re
+
+        if self.max_pos is not None:
+            pos = int(cols[3])
+            if pos > self.max_pos:
+                return False
 
         matches = 0
         cigar = cols[5]
