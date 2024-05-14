@@ -305,12 +305,20 @@ def main(args):
 
         # collect the counts and make one AnnData object
         adata_shards = []
+        na_shards = []
         for name, res in w.result_dict.items():
             if name.startswith("count.worker"):
                 adata = DGE.sparse_arrays_to_adata(
                     res["channel_d"], res["obs_names"], res["var_names"]
                 )
                 # adata.obs["worker"] = name
+                if "NA" in adata.obs_names:
+                    na_shards.append(adata["NA"])
+                    na_mask = np.array([name == "NA" for name in adata.obs_names])
+                    # drop the NA gene (for barcode outside allowlist) from
+                    # adata and keep it separate
+                    adata = adata[~na_mask].copy()
+
                 adata_shards.append(adata)
 
                 for k, n in res["counter_stats"].items():
@@ -321,11 +329,11 @@ def main(args):
             adata_shards, axis=0, join="outer", merge="unique", uns_merge="first"
         )
         adata.obs_names_make_unique()
-        # need to add up everything that is 'NA-x'
-        na_mask = np.array([o.startswith("NA-") for o in adata.obs_names])
-        na = adata[na_mask].X.sum(axis=0)
-        adata = adata[~na_mask].copy()
-        adata["NA"] = na
+        # # need to add up everything that is 'NA-x'
+        # na_mask = np.array([o.startswith("NA-") for o in adata.obs_names])
+        # na = adata[na_mask].X.sum(axis=0)
+        # adata = adata[~na_mask].copy()
+        # adata["NA"] = na
         adata.var["reference"] = ref
         adata.var["reference"] = pd.Categorical(adata.var["reference"])
         adata.obs[f"n_{ref}_counts"] = sparse_summation(adata.X, axis=1)
