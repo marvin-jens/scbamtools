@@ -266,7 +266,7 @@ class BaseCounter:
                 self.stats["N_aln_selected"] += 1
             else:
                 self.stats["N_aln_selection_failed"] += 1
-
+        # print(f"selected -> {selected}")
         if selected:
             self.stats["N_aln_countable"] += 1
             cell, umi, chrom, strand, gn, gf, score = selected
@@ -274,6 +274,7 @@ class BaseCounter:
             self.stats[f"N_aln_{strand}"] += 1
 
             gene, gf = self.select_gene(*selected)
+            # print(f"gene, gf -> {gene}, {gf}")
             if len(gn) == 1:
                 gene = gn[0]
                 if gene is None or gene == "-":
@@ -401,7 +402,7 @@ class mRNACounter(BaseCounter):
                 kept = (CB, MI, chrom, strand, gn, gf, score)
 
         if n_top == 1:
-            print(kept)
+            # print(kept)
             return kept
 
     ## Gene selection strategy, similar to alignment selection
@@ -413,6 +414,8 @@ class mRNACounter(BaseCounter):
         max_code = "-"
         import itertools
 
+        gn = gn.split(",")
+        gf = gf.split(",")
         for n, f in itertools.zip_longest(gn, gf, fillvalue=gn[0]):
             codes = f.split("|")
             f_prios = np.array([self.gene_priorities.get(x, 0) for x in codes])
