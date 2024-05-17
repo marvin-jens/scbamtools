@@ -80,8 +80,12 @@ class QualityTrim:
         self.name = "Q"
 
     def match_to(self, seq, qual):
-        qtrim = np.array(qual) >= self.min_base_qual
-        n_trimmed = (qtrim[::-1]).argmax()
+        from cutadapt.qualtrim import quality_trim_index
+
+        _, end = quality_trim_index(qual, 0, self.min_base_qual)
+        # we use the cutadapt function here (which implements BWA's logic).
+        # but only for the 3' end.
+        n_trimmed = len(qual) - end
         return n_trimmed
 
 
@@ -247,9 +251,9 @@ def process_reads(input, output, args):
         cols = read.split("\t")
         read_seq = cols[9]
         qual_str = cols[10]
-        read_qual = np.array(bytearray(qual_str.encode("ASCII"))) - args.phred_base
+        # read_qual = np.array(bytearray(qual_str.encode("ASCII"))) - args.phred_base
 
-        result = flavor.process_read(read_seq, read_qual)
+        result = flavor.process_read(read_seq, qual_str)
         if result:
             start, end, tags = result
             cols[9] = read_seq[start:end]

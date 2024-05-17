@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
   "mrfifo",
   "cython",
+  "cutadapt",
   "numpy",
 ]
 
