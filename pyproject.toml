@@ -40,3 +40,10 @@ Repository = "https://github.com/marvin-jens/scbamtools.git"
 Issues = "https://github.com/marvin-jens/scbamtools/issues"
 #Changelog = "https://github.com/marvin-jens/scbamtools/blob/master/CHANGELOG.md"
 
+[project.scripts]
+ann = "scbamtools.bin.ann:cmdline"
+trim = "scbamtools.bin.trim:cmdline"
+uBAM = "scbamtools.bin.uBAM:cmdline"
+count = "scbamtools.bin.count:cmdline"
+
+
