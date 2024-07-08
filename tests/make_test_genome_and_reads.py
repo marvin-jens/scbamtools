@@ -36,10 +36,19 @@ class Genome:
                 fa.write(f">{chrom}\n{wrapped}\n\n")
 
 
+def random_sequences(l=12, n=1, alphabet=list("ACGT")):
+    for i in range(n):
+        yield "".join(np.random.choice(alphabet, size=l, replace=True))
+
+
+cell_barcodes = list(random_sequences(l=12, n=5))
+UMIs = list(random_sequences(l=8, n=150))
+
+
 def make_genome(chrom_sizes):
     genome = {}
     for chrom, size in sorted(chrom_sizes.items()):
-        seq = "".join(np.random.choice(np.array(list("ACGT")), size=size, replace=True))
+        seq = next(random_sequences(l=size, n=1))
         genome[chrom] = seq
 
     return Genome(genome)
@@ -65,15 +74,47 @@ def sample_reads(mrna, l=90, n=200):
         yield mrna[i : i + l]
 
 
+def sample_barcodes(i):
+    return cell_barcodes[i % len(cell_barcodes)], UMIs[i % len(UMIs)]
+
+
+def sample_quality(l=50, l_good=80, phred_base=33, min_qual=2, max_qual=40):
+    x = np.arange(l)
+    m = np.where(x < l_good, max_qual - 2, min_qual)
+    M = np.where(x < l_good, max_qual, max_qual - 10)
+    Q = np.random.randint(m, high=M + 1, size=l)
+
+    return "".join([chr(q + phred_base) for q in Q])
+
+
 from scbamtools.gene_model import Transcript
 
 import gzip
 
 with open("test_data/simple_mrnas.fa", "w") as mrna:
-    with gzip.open("test_data/simple_reads.fastq.gz", mode="wt") as fq:
-        for tx in Transcript.from_GTF("test_data/simple_annotation.gtf", genome=genome):
-            seq = tx.spliced_sequence
-            mrna.write(f">{tx.transcript_id}\n{seq}\n")
-            for i, read in enumerate(sample_reads(seq)):
-                qual = "I" * len(read)
-                fq.write(f"@read_{tx.transcript_id}_{i}\n{read}\n+\n{qual}\n")
+    with gzip.open("test_data/simple.reads1.fastq.gz", mode="wt") as fq1:
+        with gzip.open("test_data/simple.reads2.fastq.gz", mode="wt") as fq2:
+            for tx in Transcript.from_GTF(
+                "test_data/simple_annotation.gtf", genome=genome
+            ):
+                seq = tx.spliced_sequence + "A" * 90
+                mrna.write(f">{tx.transcript_id}\n{seq}\n")
+                for i, read in enumerate(sample_reads(seq)):
+                    qual = sample_quality(len(read))
+                    fq2.write(f"@read_{tx.transcript_id}_{i}\n{read}\n+\n{qual}\n")
+
+                    bc, umi = sample_barcodes(i)
+                    seq1 = bc + umi + "TT"
+                    qual = sample_quality(len(seq1), l_good=10)  # "I" * len(seq1)
+                    fq1.write(f"@read_{tx.transcript_id}_{i}\n{seq1}\n+\n{qual}\n")
+
+                seq = tx.unspliced_sequence + "A" * 90
+                mrna.write(f">{tx.transcript_id}\n{seq}\n")
+                for i, read in enumerate(sample_reads(seq)):
+                    qual = sample_quality(len(read))
+                    fq2.write(f"@read_{tx.transcript_id}_{i}\n{read}\n+\n{qual}\n")
+
+                    bc, umi = sample_barcodes(i)
+                    seq1 = bc + umi + "TT"
+                    qual = sample_quality(len(seq1), l_good=10)  # "I" * len(seq1)
+                    fq1.write(f"@read_{tx.transcript_id}_{i}\n{seq1}\n+\n{qual}\n")
