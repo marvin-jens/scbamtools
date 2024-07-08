@@ -108,6 +108,40 @@ class ExonChain(object):
                 ",".join([str(e) for e in self.exon_ends]),
             )
 
+    def upstream(self, L=100):
+        if self.strand == "+":
+            exon_starts = [self.start - L]
+            exon_ends = [self.start]
+        else:
+            exon_starts = [self.end]
+            exon_ends = [self.end + L]
+
+        return ExonChain(
+            self.chrom,
+            self.strand,
+            exon_starts,
+            exon_ends,
+            self.genome,
+            f"{self.name}_upstream_{L}",
+        )
+
+    def downstream(self, L=100):
+        if self.strand == "+":
+            exon_starts = [self.end]
+            exon_ends = [self.end + L]
+        else:
+            exon_starts = [self.start - L]
+            exon_ends = [self.start]
+
+        return ExonChain(
+            self.chrom,
+            self.strand,
+            exon_starts,
+            exon_ends,
+            self.genome,
+            f"{self.name}_downstream_{L}",
+        )
+
     @property
     def intron_chain(self):
         if self.exon_count > 1:
@@ -721,6 +755,155 @@ def from_bed12(src, genome=None, filter=None):
         yield chain
 
 
+class IndexedFasta(object):
+    def __init__(self, fname, split_chrom="", **kwargs):
+        import logging
+        import mmap
+        import os
+
+        self.logger = logging.getLogger("scbamtools.gene_model.IndexedFasta")
+
+        self.fname = fname
+        self.chrom_stats = {}
+        self.chrom_sizes = {}
+        self.split_chrom = split_chrom
+
+        f = open(fname)
+        idx_file = f
+        self._f = mmap.mmap(f.fileno(), 0, prot=mmap.PROT_READ)
+
+        # try to load index
+        ipath = fname + ".byo_index"
+        if os.access(ipath, os.R_OK):
+            self.load_index(ipath)
+        else:
+            self.index(idx_file)
+            self.store_index(ipath)
+
+    def index(self, idx_file):
+        self.logger.debug(
+            "index('{self.fname}') split_chrom={self.split_chrom}".format(**locals())
+        )
+
+        ofs = 0
+        chrom = "undef"
+        chrom_ofs = 0
+        size = 0
+        nl_char = 0
+
+        for line in idx_file:
+            ofs += len(line)
+            if line.startswith(">"):
+                # store size of previous sequence
+                if size:
+                    self.chrom_stats[chrom].append(size)
+
+                chrom = line[1:].split()[0].strip()
+                if self.split_chrom:
+                    # use this to strip garbage from chrom/contig name like chr1:new
+                    # ->split_chrom=':' -> chrom=chr1
+                    chrom = chrom.split(self.split_chrom)[0]
+                chrom_ofs = ofs
+            else:
+                if not chrom in self.chrom_stats:
+                    # this is the first line of the new chrom
+                    size = 0
+                    lline = len(line)
+                    ldata = len(line.strip())
+                    nl_char = lline - ldata
+                    self.chrom_stats[chrom] = [chrom_ofs, ldata, nl_char, line[ldata:]]
+                size += len(line.strip())
+
+        # store size of previous sequence
+        if size:
+            self.chrom_stats[chrom].append(size)
+        idx_file.flush()
+        idx_file.seek(0)
+
+    def store_index(self, ipath):
+        import os
+
+        self.logger.info("store_index('%s')" % ipath)
+
+        # write to tmp-file first and in the end rename in order to have this atomic
+        # otherwise parallel building of the same index may screw it up.
+
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", dir=os.path.dirname(ipath), delete=False
+        )
+        for chrom in sorted(self.chrom_stats.keys()):
+            ofs, ldata, skip, skipchar, size = self.chrom_stats[chrom]
+            tmp.write(
+                "%s\t%d\t%d\t%d\t%r\t%d\n" % (chrom, ofs, ldata, skip, skipchar, size)
+            )
+
+        # make sure everything is on disk
+        os.fsync(tmp)
+        tmp.close()
+
+        # make it accessible to everyone
+        import stat
+
+        os.chmod(tmp.name, stat.S_IROTH | stat.S_IRGRP | stat.S_IRUSR)
+
+        # this is atomic on POSIX as we have created tmp in the same directory,
+        # therefore same filesystem
+        os.rename(tmp.name, ipath)
+
+    def load_index(self, ipath):
+        self.logger.info("load_index('%s')" % ipath)
+        self.chrom_stats = {}
+        for line in open(ipath):
+            chrom, ofs, ldata, skip, skipchar, size = line.rstrip().split("\t")
+            self.chrom_stats[chrom] = (
+                int(ofs),
+                int(ldata),
+                int(skip),
+                skipchar[1:-1].encode("ascii").decode("unicode_escape"),
+                int(size),
+            )
+            self.chrom_sizes[chrom] = int(size)
+
+    def get_data(self, chrom, start, end, sense):
+        from scbamtools.util import rev_comp
+
+        if not self.chrom_stats:
+            self.index()
+
+        ofs, ldata, skip, skip_char, size = self.chrom_stats[chrom]
+        # print("ldata",ldata)
+        # print("chromstats",self.chrom_stats[chrom])
+        pad_start = 0
+        pad_end = 0
+        if start < 0:
+            pad_start = -start
+            start = 0
+
+        if end > size:
+            pad_end = end - size
+            end = size
+
+        l_start = int(start / ldata)
+        l_end = int(end / ldata)
+        # print "lines",l_start,l_end
+        ofs_start = l_start * skip + start + ofs
+        ofs_end = l_end * skip + end + ofs
+        # print("ofs",ofs_start,ofs_end,ofs_end - ofs_start)
+        # print(type(skip_char))
+
+        s = self._f[ofs_start:ofs_end].decode("ascii").replace(skip_char, "")
+        if pad_start or pad_end:
+            s = "N" * pad_start + s + "N" * pad_end
+
+        if sense == "-":
+            s = rev_comp(s)
+        return s
+
+
 if __name__ == "__main__":
-    for tx in Transcript.transcripts_from_GTF("/dev/stdin"):
-        print(tx)
+    genome = IndexedFasta("/data/rajewsky/genomes/GRCh38/GRCh38.fa")
+    for tx in Transcript.from_GTF("/dev/stdin", genome=genome):
+        print(tx.upstream(100).bed12_format())
+        print(tx.downstream(100).bed12_format())
