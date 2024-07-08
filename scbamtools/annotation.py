@@ -12,6 +12,7 @@ from ctypes import c_int
 import typing
 import scbamtools.util as util
 
+
 ## GTF I/O
 def attr_to_dict(attr_str: str) -> dict:
     """
@@ -71,7 +72,7 @@ def load_GTF(
     fset = set(features)
     data = []
     for line in src:
-        if line.startswith('#'):
+        if line.startswith("#"):
             continue
 
         parts = line.split("\t")
@@ -108,31 +109,33 @@ def load_GTF(
     )
     return df
 
-def make_lookup(d):
-    return np.array(
-        [d.get(i, "?") for i in np.arange(256)], dtype=object
-    )
 
-default_lookup = make_lookup({
-    # CDS UTR exon transcript-> gm, gf tag values
-    0b1011: "C",  # CDS exon
-    # This should not arise! Unless, isoforms-are merged
-    0b1111: "CU",  # CDS and UTR exon
-    0b0111: "U",  # UTR exon
-    0b0011: "N",  # exon of a non-coding transcript
-    0b1001: "I",  # intron
-    0b0101: "I",
-    0b0001: "I",
-    0b0000: "-",  # intergenic
-    0b10110000: "c",  # CDS exon
-    0b11110000: "cu",  # CDS and UTR exon
-    0b01110000: "u",  # UTR exon
-    0b00110000: "n",  # exon of a non-coding transcript
-    0b10010000: "i",  # intron
-    0b01010000: "i",
-    0b00010000: "i",
-    0b00000000: "-",  # intergenic
-})
+def make_lookup(d):
+    return np.array([d.get(i, "?") for i in np.arange(256)], dtype=object)
+
+
+default_lookup = make_lookup(
+    {
+        # CDS UTR exon transcript-> gm, gf tag values
+        0b1011: "C",  # CDS exon
+        # This should not arise! Unless, isoforms-are merged
+        0b1111: "CU",  # CDS and UTR exon
+        0b0111: "U",  # UTR exon
+        0b0011: "N",  # exon of a non-coding transcript
+        0b1001: "I",  # intron
+        0b0101: "I",
+        0b0001: "I",
+        0b0000: "-",  # intergenic
+        0b10110000: "c",  # CDS exon
+        0b11110000: "cu",  # CDS and UTR exon
+        0b01110000: "u",  # UTR exon
+        0b00110000: "n",  # exon of a non-coding transcript
+        0b10010000: "i",  # intron
+        0b01010000: "i",
+        0b00010000: "i",
+        0b00000000: "-",  # intergenic
+    }
+)
 default_strand_translation = str.maketrans("CUNIcuni", "cuniCUNI", "")
 
 # short-hands for common transcript types
@@ -153,6 +156,7 @@ abbreviations = {
     "rRNA": "r",
 }
 
+
 ## Space-efficient container of aggregating overlap information (isoform resolution)
 ## TODO: find a better, more compact/faster intermediate layer
 @dataclass
@@ -160,6 +164,7 @@ class IsoformOverlap:
     gene_name: str = "no_name"
     transcript_type: str = "no_type"
     flags: int = 0
+
 
 def overlaps_to_tags(isoform_overlaps: dict, flags_lookup=default_lookup) -> tuple:
     """_summary_
@@ -170,12 +175,12 @@ def overlaps_to_tags(isoform_overlaps: dict, flags_lookup=default_lookup) -> tup
         flags_lookup (_type_, optional): _description_. Defaults to default_lookup.
 
     Returns:
-        
+
         tuple: (gn, gf, gt)
             a tuple with tag values encoding the overlapping
             GTF features. Each is a list of strings :
 
-                gn: gene names 
+                gn: gene names
                 gf: function
                 gt: transcript type
 
@@ -183,12 +188,12 @@ def overlaps_to_tags(isoform_overlaps: dict, flags_lookup=default_lookup) -> tup
                 lower case letters for features on the '-' strand.
 
                 For a query against the minus strand, upper and lower case
-                need to be swapped in order to get features that align in the 
+                need to be swapped in order to get features that align in the
                 "sense" direction in upper case and "antisense" features in lower-case.
 
-                For a strand-agnostic query, .upper() is called. 
+                For a strand-agnostic query, .upper() is called.
                 These case-mangling operations are carried out in get_annotation_tags()
-        
+
     """
     # PROBLEM:
     # order of tag values is given by order of annotation records, not anything
@@ -284,14 +289,14 @@ class GTFClassifier:
             info = isoform_overlaps[transcript_id]
             info.gene_name = gene_name
             info.transcript_type = transcript_type
-            info.flags |= flag 
+            info.flags |= flag
             # print(f"df entry for id={i}: {self.df_core[i]} flags={info.flags:08b}")
 
         return overlaps_to_tags(isoform_overlaps)  # isoform_overlaps
 
     # def preprocess(self, ids: typing.Iterable[c_int]) -> tuple:
     #     """
-    #     pre-process a list of features into full annotation for either strand, 
+    #     pre-process a list of features into full annotation for either strand,
     #     as well as intermediate data objects that allow correct merging.
     #     These results will be stored when annotation is "compiled" in order to offer
     #     much faster lookups.
@@ -299,6 +304,7 @@ class GTFClassifier:
     #     Args:
     #         idx (_type_): _description_
     #     """
+
 
 ## Second iteration. Here, we load already pre-compiled, unique combinations of original GTF
 # features as they occur in the genome. The beauty is that each of these "compiled" features now
@@ -359,7 +365,7 @@ class CompiledClassifier:
                 c = self.classifications[self.cid_table[idx]]
                 for gene in c[0]:
                     gene_contains[gene] |= si
-                    gene_contains[gene] |= 2*ei
+                    gene_contains[gene] |= 2 * ei
 
         if len(cidx) == 1:
             # fast path
@@ -372,8 +378,8 @@ class CompiledClassifier:
             for gene, fcontains in gene_contains.items():
                 if fcontains < 3:
                     ann[0].append(gene)
-                    ann[1].append('-')
-                    ann[2].append('-')
+                    ann[1].append("-")
+                    ann[2].append("-")
 
         return ann
 
@@ -386,7 +392,7 @@ def query_ncls(nc, x0, x1, check_contained=False):
     format is frozenset bc that can be hashed and used as a key.
     TODO: directly hook into NCLSIterator functionality to get rid of this overhead
     """
-    
+
     if check_contained:
         keys = []
         start_contained = []
@@ -398,10 +404,11 @@ def query_ncls(nc, x0, x1, check_contained=False):
 
         # print(f"query ({x0} - {x1}) strand ={strand} -> {res}")
         return keys, start_contained, end_contained
-    
+
     else:
         res = [o[2] for o in nc.find_overlap(x0, x1)]
         return res
+
 
 def decompose(nc):
     """
@@ -611,8 +618,8 @@ class GenomeAnnotation:
             # decompose will report combinations of real indices into the df
             # for both strands + and - . The task of properly assigning these is
             # shifted to process(), merge() and later queries.
-            # In consequence a single compiled annotation element can include features 
-            # from both strands! 
+            # In consequence a single compiled annotation element can include features
+            # from both strands!
             for start, end, idx in decompose(nc):
                 # print(f"start={start} end={end} idx={idx}")
                 chroms.append(chrom)
@@ -627,7 +634,7 @@ class GenomeAnnotation:
 
         self.logger.debug("done")
         cdf = pd.DataFrame(
-            dict(chrom=chroms, start=cstarts, end=cends, cid=cids) # strand=strands, 
+            dict(chrom=chroms, start=cstarts, end=cends, cid=cids)  # strand=strands,
         )
         dt = time() - t0
         self.logger.debug(
@@ -638,7 +645,9 @@ class GenomeAnnotation:
         classifications = []
         t0 = time()
         for n, idx in enumerate(cidx):
-            res = postprocess_tags(*self.classifier.process(idx)) # <- ((gn, gf, gt), isoform_overlaps dict)
+            res = postprocess_tags(
+                *self.classifier.process(idx)
+            )  # <- ((gn, gf, gt), isoform_overlaps dict)
             # classifications.append(to_tags(res))
             classifications.append(res)
 
@@ -660,7 +669,9 @@ class GenomeAnnotation:
 
         ## Create a secondary Annotator which uses the non-overlapping combinations
         ## and the pre-classified annotations for the actual tagging
-        gc = GenomeAnnotation(cdf, CompiledClassifier(cdf, classifications), is_compiled=True)
+        gc = GenomeAnnotation(
+            cdf, CompiledClassifier(cdf, classifications), is_compiled=True
+        )
 
         return gc
 
@@ -673,7 +684,9 @@ class GenomeAnnotation:
             else:
                 return values
 
-        gn, gf, gt = self.query_blocks(chrom, blocks, check_contained=False)  # True is experimental and breaks stuff
+        gn, gf, gt = self.query_blocks(
+            chrom, blocks, check_contained=False
+        )  # True is experimental and breaks stuff
         if len(gf):
             gn = ",".join(collapse_tag_values(gn))
             gf = ",".join(gf)
@@ -683,21 +696,21 @@ class GenomeAnnotation:
             gf = "-"
             gt = "-"
 
-        if strand == '-':
+        if strand == "-":
             gf = gf.translate(default_strand_translation)
-        elif strand == '*':
+        elif strand == "*":
             gf = gf.upper()
 
         return gn, gf, gt
-    
+
 
 def postprocess_tags(gn, gf, gt):
     """
     post-process multiple functional annotations for a single gene,
     as can arise if we have multiple isoforms in a region.
     Assuming that this is called during compilation, the query region
-    is a minimal combination of uniquely overlapping features. 
-    Since we postprocess annotation for each gene separately, some 
+    is a minimal combination of uniquely overlapping features.
+    Since we postprocess annotation for each gene separately, some
     combinations can then ONLY arise by isoform differences. This is
     not the same scenario as overlapping distinct functional elements of
     all isoforms. We want:
@@ -708,10 +721,11 @@ def postprocess_tags(gn, gf, gt):
     """
     # print("input", gn, gf, gt)
     from collections import defaultdict
+
     by_gn = defaultdict(set)
     for n, f, t in zip(gn, gf, gt):
         by_gn[n].add((f, t))
-    
+
     # print(gf_by_gn)
     # print(gt_by_gn)
     gn = sorted(by_gn.keys())
@@ -732,7 +746,3 @@ def postprocess_tags(gn, gf, gt):
     # gf = ["|".join(sorted(by_gn[n])) for n in gn]
     # gt = ["|".join(sorted(gt_by_gn[n])) for n in gn]
     return gn, gf, gt
-
-
-
-
