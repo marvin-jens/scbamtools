@@ -27,7 +27,10 @@ def load(config_file="", load_defaults=True, args={}):
                 if type(v) is str and "{" in v:
                     # attempt to expand variables
                     # print(v, args)
-                    v = v.format(args=args_ns)
+                    try:
+                        v = v.format(args=args_ns)
+                    except KeyError:
+                        pass
 
                 dst[k] = v
         return dst
