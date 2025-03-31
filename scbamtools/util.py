@@ -56,7 +56,7 @@ def setup_logging(
     return logger
 
 
-def make_minimal_parser(prog="", usage="", **kw):
+def make_minimal_parser(prog="", usage="", main=None, **kw):
     import argparse
 
     parser = argparse.ArgumentParser(prog=prog, usage=usage, **kw)
@@ -78,6 +78,32 @@ def make_minimal_parser(prog="", usage="", **kw):
     parser.add_argument(
         "--sample", default="sample_NA", help="sample_id (where applicable)"
     )
+    parser.add_argument(
+        "--version",
+        default=False,
+        action="store_true",
+        help="output version information and exit",
+    )
+
+    def default_logic(args):
+        if args.version:
+            from scbamtools.contrib import __version__, __author__, __license__
+
+            print(f"scbamtools {prog} version {__version__}")
+            print(f"by {__author__}, released under {__license__} license")
+
+        else:
+            import scbamtools.config as config
+
+            if hasattr(args, "config"):
+                args = config.load(args.config, args=vars(args))
+
+            setup_logging(args)
+
+            return main(args)
+
+    parser.set_defaults(func=default_logic)
+
     return parser
 
 
