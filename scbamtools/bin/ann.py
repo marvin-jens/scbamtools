@@ -167,6 +167,8 @@ def main(args):
             inputs=mf.FIFO("out{n}", "rt", n=args.threads_work),
             header_fifo=mf.FIFO("new_header", "rt"),
             output=mf.FIFO("out_sam", "wt"),
+            log_rate_every_n=1000000,
+            log_rate_template="annotated {M_out:.1f} M SAM records ({mps:.3f} M/s, overall {MPS:.3f} M/s)",
             chunk_size=1,
         )
         .funnel(
