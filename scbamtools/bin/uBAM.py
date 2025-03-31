@@ -94,12 +94,14 @@ def make_sam_record(
 def quality_trim(fq_src, min_qual=20, phred_base=33):
     for name, seq, qual in fq_src:
         end = len(seq)
-        q = np.array(bytearray(qual.encode("ASCII"))) - phred_base
-        qtrim = q >= min_qual
-        new_end = end - (qtrim[::-1]).argmax()
+        from cutadapt.qualtrim import quality_trim_index
+
+        _, new_end = quality_trim_index(qual, 0, min_qual)
+        # we use the cutadapt function here (which implements BWA's logic).
+        # but only for the 3' end.
+        n_trimmed = len(qual) - end
 
         # TODO: yield A3,T3 adapter-trimming tags
-        # TODO: convert to cutadapt/BWA qual-trim logic
         if new_end != end:
             qual = qual[:new_end]
             seq = seq[:new_end]
