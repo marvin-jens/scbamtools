@@ -7,15 +7,16 @@ import datetime
 import os
 import scbamtools.util as util
 import scbamtools.config as config
-
+from scbamtools.contrib import __version__, __author__, __license__
 from scbamtools.quant import DGE, default_channels, sparse_summation
 import mrfifo as mf
 
 
-def parse_cmdline():
+def cmdline():
     parser = util.make_minimal_parser(
-        prog="quant.py",
+        prog="count",
         description="quantify per-cell gene expression from BAM files by counting into a (sparse) DGE matrix",
+        main=main,
     )
     parser.add_argument("--config", default="config.yaml", help="path to config-file")
 
@@ -86,7 +87,7 @@ def parse_cmdline():
         default="{args.output}/{args.sample}.stats.tsv",
     )
     args = parser.parse_args()
-    return config.load(args.config, args=vars(args))
+    return args
 
 
 def get_counter_class(classpath):
@@ -338,7 +339,7 @@ def main(args):
         adata.var["reference"] = pd.Categorical(adata.var["reference"])
         adata.obs[f"n_{ref}_counts"] = sparse_summation(adata.X, axis=1)
         adata_refs.append(adata)
-        adata.write_h5ad(f"{ref}.h5ad")
+        # adata.write_h5ad(f"{ref}.h5ad")
 
         stats.append(counter_stats)
 
@@ -386,5 +387,5 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = parse_cmdline()
-    main(args)
+    args = cmdline()
+    args.func(args)
