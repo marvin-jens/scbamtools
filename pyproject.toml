@@ -30,6 +30,7 @@ dependencies = [
   "cython",
   "cutadapt",
   "numpy",
+  "ncls",
 ]
 
 #project.optional_dependencies]
