@@ -160,6 +160,8 @@ class BaseCounter:
     def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
         if len(gn) == 1:
             return gn[0], gf[0]
+        elif len(set(gn)) == 1:
+            return gn[0], gf[0]
         else:
             return "-", "-"
 
@@ -169,7 +171,7 @@ class BaseCounter:
         return channels
 
     ## Count-channel determination
-    def determine_channels(self, gf, uniq):
+    def determine_gene_and_channels(self, gene, gf, uniq):
         channels = set()
         exon = False
         intron = False
@@ -198,7 +200,7 @@ class BaseCounter:
         if channels & self.read_X_channels:
             channels.add("reads")
 
-        return channels
+        return gene, channels
 
     def bundles_from_SAM(self, sam_input):
         import re
@@ -302,12 +304,12 @@ class BaseCounter:
                 # handle the whole uniqueness in a way that can parallelize
                 # maybe split by UMI[:2]? This way, distributed uniq() sets would
                 # never overlap
-                key = hash((cell, gene, umi))
+                key = hash((cell, umi))  # gene,
                 uniq = not (key in self.uniq)
                 if uniq:
                     self.uniq.add(key)
 
-                channels = self.determine_channels(gf, uniq)
+                gene, channels = self.determine_gene_and_channels(gene, gf, uniq)
                 for c in channels:
                     self.stats[f"N_channel_{c}"] += 1
 
@@ -318,6 +320,7 @@ class BaseCounter:
             gene = "-"
             channels = set()
 
+        # print(f"process_bundle()-> cell={cell} gene={gene}, channels={channels}")
         return cell, gene, channels
 
 
@@ -335,16 +338,65 @@ class CustomIndexCounter(BaseCounter):
         if plus:
             return self.unique_alignment(plus)
 
-    # def determine_channels(self, gf, uniq):
+    # def determine_gene_and_channels(self, gene, gf, uniq):
     #     if uniq:
     #         channels = {'reads', 'counts'}
     #     else:
     #         channels = {'reads'}
 
-    #     return channels
+    #     return gene, channels
 
     # select_gene and exon_intron_disambiguation never get called
     # and thus do not need to be implemented
+
+
+class miRNAPrecursorCounter(BaseCounter):
+
+    logger = logging.getLogger("scbamtools.quant.miRNAPrecursorCounter")
+
+    def unique_alignment(self, bundle):
+        # return the first alignment, no matter how many alternatives we find
+        CB, MI, chrom, strand, gn, gf, score = bundle[0]
+        # print(
+        #     f"miRNAPrecursorCounter unique_alignment({CB} {MI} {chrom} {strand} {gn} {gf} {score})"
+        # )
+        return (CB, MI, chrom, strand, gn.split(","), gf.split(","), score)
+
+    def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
+        # give precedent to loop
+        w_loop = [(g, f) for g, f in zip(gn, gf) if g.endswith("loop")]
+        if w_loop:
+            return w_loop[0]
+        # elif:
+        #     ns = set(gn)
+        #     if len(ns) == 1:
+        #         return gn[0], gf[0]
+        else:
+            return gn[0], gf[0]
+
+    def select_alignment(self, bundle):
+        # only consider alignments on the + strand (for custom indices)
+        plus = [b for b in bundle if b[3] == "+"]
+        if plus:
+            return self.unique_alignment(plus)
+
+    def determine_gene_and_channels(self, gene, gf, uniq):
+        # chan = "counts"
+        # if "loop" in gene:
+        #     chan = "counts_pre"
+        # elif "*" in gene:
+        #     chan = "counts_star"
+
+        if uniq:
+            # channels = {"reads", chan}
+            channels = {"reads", "counts"}
+        else:
+            channels = {"reads"}
+
+        # remove which precursor we were looking.
+        # Loop/Star is in the channels at this point
+        # gene = gene.split("-P")[0]
+        return gene, channels
 
 
 class mRNACounter(BaseCounter):
@@ -668,6 +720,7 @@ class DGE:
         """
         import anndata
 
+        # print("channel_d", channel_d.keys())
         X = channel_d[main_channel]
         adata = anndata.AnnData(X)
         adata.obs_names = obs

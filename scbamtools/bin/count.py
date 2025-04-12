@@ -52,9 +52,9 @@ def cmdline():
         type=int,
     )
     parser.add_argument(
-        "--flavor",
-        help="name of the adapter flavor used to retrieve sequences and parameters from the config.yaml. Can also be a mapping choosing specific flavor for each reference (example: 'first@miRNA,default@genome,chrom@rRNA')",
-        default="default",
+        "--flavors",
+        help="comma-separated list of quantification flavors to retrieve from the config.yaml and apply to each BAM/CRAM in the input. If not set, will use 'default' for every BAM/CRAM",
+        default="",
     )
     parser.add_argument(
         "--cell-bc-allow-list",
@@ -103,7 +103,7 @@ def get_counter_class(classpath):
     return getattr(m, cls)
 
 
-def get_config_for_refs(args):
+def get_config_for_refs(args, default="default"):
     """
     Parse flavor definitions, filling a dictionary with reference name as key and configuration
     as values.
@@ -120,102 +120,25 @@ def get_config_for_refs(args):
     for name, config in flavors.items():
         config["name"] = name
 
-    ref_d = {}
-    default = "default"
-    for f in args.flavor.split(","):
-        if "@" in f:
-            ref, name = f.split("@")
-            ref_d[ref] = flavors[name]
-        else:
-            default = f
-
-    ref_d["*"] = flavors[default]
+    bam_d = {"*": flavors[default]}
 
     # collect all channel names that can be expected to be generated
-    channels = []
-    for ref, config in ref_d.items():
-        channels.extend(config.get("channels", default_channels))
+    channels = list(default_channels)
 
-    return ref_d, sorted(set(channels))
+    if args.flavors:
+        for bam, flavor_name in zip(args.bam_in, args.flavors.split(",")):
+            f = flavors[flavor_name]
+            bam_d[bam] = f
+            channels.extend(f.get("channels", default_channels))
 
-
-def DGE_counter(Qin, Qerr, abort_flag, stat_list, args={}, **kw):
-    with ExceptionLogging(
-        "scbamtools.quant.DGE_counter", Qerr=Qerr, exc_flag=abort_flag
-    ) as el:
-        # load detailed counter configurations for each reference name
-        # plus a default setting ('*' key)
-        conf_d, channels = get_config_for_refs(args)
-
-        # prepare the sparse-matrix data collection (for multiple channels in parallel)
-        dge = DGE(channels=channels, cell_bc_allowlist=args.cell_bc_allowlist)
-
-        # keep track of which reference contained which gene names
-        gene_source = {}
-
-        # iterate over chunks of count_data prepared by the worker processes
-        for n_chunk, ref, count_data in queue_iter(Qin, abort_flag):
-            for gene, cell, channels in count_data:
-                dge.add_read(gene=gene, cell=cell, channels=channels)
-                # keep track of the mapping reference origin of every gene
-                # (in case we combine multiple BAMs)
-                if gene.startswith("mm_") and ref != "genome":
-                    print(f"gene {gene} is in {ref} ? RLY?")
-
-                gene_source[gene] = ref
-
-            Qin.task_done()
-
-        el.logger.debug("completed counting. Writing output.")
-
-        sparse_d, obs, var = dge.make_sparse_arrays()
-        adata = dge.sparse_arrays_to_adata(sparse_d, obs, var)
-        adata.var["reference"] = [gene_source[gene] for gene in var]
-        adata.uns["sample_name"] = args.sample
-        adata.uns["DGE_info"] = (
-            f"created with scbamtools.quant version={__version__} on {datetime.datetime.today().isoformat()}"
-        )
-        adata.uns["DGE_cmdline"] = sys.argv
-        adata.write(args.out_dge.format(args=args))
-
-        ## write out marginal counts across both axes:
-        #   summing over obs/cells -> pseudo bulk
-        #   summing over genes -> UMI/read distribution
-        pname = args.out_bulk.format(args=args)
-
-        data = OrderedDict()
-
-        data["sample_name"] = args.sample
-        data["reference"] = [gene_source[gene] for gene in var]
-        data["gene"] = var
-        for channel, M in sparse_d.items():
-            data[channel] = sparse_summation(M)
-
-        import pandas as pd
-
-        df = pd.DataFrame(data).sort_values("counts")
-        df.to_csv(pname, sep="\t")
-
-        tname = args.out_summary.format(args=args)
-
-        data = OrderedDict()
-
-        # TODO: add back in once we dropped the Rmd QC sheet scripts
-        # data["sample_name"] = args.sample
-        data["cell_bc"] = obs
-        for channel, M in sparse_d.items():
-            data[channel] = sparse_summation(M, axis=1)
-
-        df = pd.DataFrame(data)
-        df.to_csv(tname, sep="\t")
-        el.logger.debug("shutdown")
+    return bam_d, sorted(set(channels))
 
 
-def simple_check(input, output="/dev/stdout"):
-    n = 0
-    for line in input:
-        n += 1
-    return n
+# def simple_check(input, output="/dev/stdout"):
+#     n = 0
+#     for line in input:
+#         n += 1
+#     return n
 
 
 def sam_to_DGE(input, channels=[], cell_bc_allow_list="", config={}, **kw):
@@ -229,7 +152,8 @@ def sam_to_DGE(input, channels=[], cell_bc_allow_list="", config={}, **kw):
     counter_class = get_counter_class(
         config.get("counter_class", "scbamtools.quant.DefaultCounter")
     )
-    counter = counter_class(**config)
+    # print(f"counter: {counter_class}")
+    counter = counter_class(channels=channels, **config)
 
     dge = scbamtools.quant.DGE(channels=channels, cell_bc_allow_list=cell_bc_allow_list)
     for bundle in counter.bundles_from_SAM(input):
@@ -238,6 +162,7 @@ def sam_to_DGE(input, channels=[], cell_bc_allow_list="", config={}, **kw):
             dge.add_read(cell, gene, channels)
 
     channel_d, obs_names, var_names = dge.make_sparse_arrays()
+    # print("end of sam_to_DGE: channel_d", channel_d.keys(), obs_names, var_names)
     return {
         "channel_d": channel_d,
         "obs_names": obs_names,
@@ -252,10 +177,10 @@ def main(args):
     import pandas as pd
     from time import time
 
-    configs, channels = get_config_for_refs(args)
+    qflavor_d, channels = get_config_for_refs(args)
 
     logger = util.setup_logging(args, f"scbamtools.count.main")
-    logger.debug("startup")
+    logger.info(f"startup. Channels collected from config: '{channels}'")
 
     adata_refs = []
     util.ensure_path(args.output + "/")
@@ -264,15 +189,18 @@ def main(args):
     stats = []
     for input in args.bam_in:
         ref = os.path.basename(input).split(".")[0]
-        logger.info(f"processing alignments from {input} -> ref={ref}")
-        if not ref in configs:
-            config = configs["*"]
+        # logger.info(f"processing alignments from {input} -> ref={ref}")
+        if not input in qflavor_d:
+            config = qflavor_d["*"]
             logger.warning(
-                f"no config specified for ref='{ref}' ({sorted(configs.keys())}), falling back to default."
+                f"no config specified for input='{input}' (ref={ref}) ({sorted(qflavor_d.keys())}), falling back to default."
             )
         else:
-            config = configs[ref]
+            config = qflavor_d[input]
 
+        logger.info(
+            f"using quantification flavor '{config['name']}' for input file '{input}'"
+        )
         w = (
             mf.Workflow("count", total_pipe_buffer_MB=args.pipe_buffer_size)
             .BAM_reader(
@@ -286,6 +214,7 @@ def main(args):
                 outputs=mf.FIFO("dist_{n}", "w", n=args.worker_threads),
                 header_detect_func=mf.util.is_header,
                 header_fifo="/dev/null",
+                # sub_lead=b"\tCB:Z:" # TODO: modify to split by UMI, potentially having to add up counts?
             )
             .workers(
                 func=sam_to_DGE,
@@ -309,18 +238,19 @@ def main(args):
         na_shards = []
         for name, res in w.result_dict.items():
             if name.startswith("count.worker"):
-                adata = DGE.sparse_arrays_to_adata(
-                    res["channel_d"], res["obs_names"], res["var_names"]
-                )
-                # adata.obs["worker"] = name
-                if "NA" in adata.obs_names:
-                    na_shards.append(adata["NA"])
-                    na_mask = np.array([name == "NA" for name in adata.obs_names])
-                    # drop the NA gene (for barcode outside allowlist) from
-                    # adata and keep it separate
-                    adata = adata[~na_mask].copy()
+                if len(res["channel_d"]):
+                    adata = DGE.sparse_arrays_to_adata(
+                        res["channel_d"], res["obs_names"], res["var_names"]
+                    )
+                    # adata.obs["worker"] = name
+                    if "NA" in adata.obs_names:
+                        na_shards.append(adata["NA"])
+                        na_mask = np.array([name == "NA" for name in adata.obs_names])
+                        # drop the NA gene (for barcode outside allowlist) from
+                        # adata and keep it separate
+                        adata = adata[~na_mask].copy()
 
-                adata_shards.append(adata)
+                    adata_shards.append(adata)
 
                 for k, n in res["counter_stats"].items():
                     counter_stats[k] += n
