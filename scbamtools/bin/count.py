@@ -153,7 +153,10 @@ def sam_to_DGE(input, channels=[], cell_bc_allow_list="", config={}, **kw):
         config.get("counter_class", "scbamtools.quant.DefaultCounter")
     )
     # print(f"counter: {counter_class}")
-    counter = counter_class(channels=channels, **config)
+    if len(channels):
+        config["channels"] = channels
+
+    counter = counter_class(**config)
 
     dge = scbamtools.quant.DGE(channels=channels, cell_bc_allow_list=cell_bc_allow_list)
     for bundle in counter.bundles_from_SAM(input):
