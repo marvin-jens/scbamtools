@@ -150,20 +150,69 @@ class BaseCounter:
         self.uniq = uniq
 
     ## Implement/overload the following functions in a sub-class to implement a desired counting behavior
-    def unique_alignment(self, bundle):
-        # nothing to do here, we have a unique alignment
-        return bundle[0]
+    def unique_alignment(self, chrom, strand, tags):
+        """
+        Gets called if we have exactly one record of (chrom, strand, tags) for an aligned read.
+        May be overloaded to provide a fast-path.
+        """
+        self.stats["N_aln_unique"] += 1
 
-    def select_alignment(self, bundle):
+        # nothing to do here, we have a unique alignment
+        return chrom, strand, tags
+
+    def select_multimapper(self, bundle):
+        self.stats["N_aln_multi"] += 1
+        self.stats["N_aln_selection_failed"] += 1
+
         return None
 
-    def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
-        if len(gn) == 1:
-            return gn[0], gf[0]
-        elif len(set(gn)) == 1:
-            return gn[0], gf[0]
+    def select_alignment(self, bundle):
+        """
+        Gets called to select one record from a bundle of [(chrom, strand, tags),] for an aligned read.
+        May be overloaded to provide selection by best alignment-score or preference of genic over
+        intergenic alignments (see mRNACounter).
+        Should return a single (chrom, strand, tags) tuple or None
+        Base class returns None for multimappers which results in multimappers not being counted at all.
+        """
+        if len(bundle) == 1:
+            selected = self.unique_alignment(*bundle[0])
+
         else:
-            return "-", "-"
+            selected = self.select_multimapper(bundle)
+
+        return selected
+
+    def select_gene(self, chrom, strand, tags):
+        """
+        Gets called after an alignment has been selected (either unique or by preference) in order to extract
+        gene information from the BAM tags and return the name of the gene that should be counted, along with
+        the functional category of how the alignment was classified.
+        Can implement more complex rules such as preference of exonic and sense gene hits over
+        intronic/antisense gene hits (see mRNACounter).
+        Default implementation returns first (gene, [function,]) annotation if all annotations
+        are for the same gene. Returns ('-', '-') for missing information, and None for multiple genes
+        (which then means the alignment is discarded).
+        """
+        gn = tags.get("gn", "-").split(",")
+        gf = tags.get("gf", "-").split(",")
+
+        if len(gn) == 1:
+            if gn[0] == "-":
+                self.stats["N_no_gene"]
+            else:
+                self.stats["N_gene_unique"] += 1
+            selected = gn[0], [gf[0]]
+        elif len(set(gn)) == 1:
+            self.stats["N_gene_unique"] += 1
+            gene = gn[0]
+            selected = gene, [f for f, g in zip(gf, gn) if g == gene]
+        else:
+            self.stats["N_gene_multi"] += 1
+            self.stats["N_gene_selection_failed"] += 1
+
+            selected = None
+
+        return selected
 
     def exon_intron_disambiguation(self, channels):
         # how to handle reads that align to both intron and exon features
@@ -171,10 +220,16 @@ class BaseCounter:
         return channels
 
     ## Count-channel determination
-    def determine_gene_and_channels(self, gene, gf, uniq):
+    def select_channels(self, gene, gf, uniq):
         channels = set()
         exon = False
         intron = False
+
+        if gf[0].islower():
+            self.stats["N_aln_antisense"] += 1
+        else:
+            self.stats["N_aln_sense"] += 1
+
         for f in gf:
             if f in self.exonic_set:
                 channels.add("exonic_reads")
@@ -200,34 +255,40 @@ class BaseCounter:
         if channels & self.read_X_channels:
             channels.add("reads")
 
+        for c in channels:
+            self.stats[f"N_channel_{c}"] += 1
+
+        if not channels:
+            self.stats[f"N_channel_NONE"] += 1
+
         return gene, channels
 
     def bundles_from_SAM(self, sam_input):
-        import re
+        """
+        Generator which processes an input text stream of SAM-formatted alignment records.
+        Consecutive records for the same read are grouped and emitted together as a bundle,
+        which is a list of (chrom, strand, tags).
+        tags at this level is a dictionary with strings or integers. gn,gf are not yet split on
+        ','.
+        """
+
+        default_tags = {"gn": "-", "gf": "-", "AS": -1, "CB": "-", "MI": ""}
 
         def extract(cols):
             # yield chrom, strand, gn, gf, score
             chrom = cols[2]
             strand = "-" if int(cols[3]) & 16 else "+"
-            gn = "-"
-            gf = "-"
-            AS = -1
-            CB = "-"
-            MI = "-"
 
+            tags = default_tags.copy()
             for c in cols[11:]:
-                if c.startswith("gn"):
-                    gn = c[5:]
-                elif c.startswith("gf"):
-                    gf = c[5:]
-                elif c.startswith("AS"):
-                    AS = int(c[5:])
-                elif c.startswith("MI"):
-                    MI = c[5:]
-                elif c.startswith("CB"):
-                    CB = c[5:]
+                # AA:Z:BCD -> tags['AA'] = 'BCD'
+                tname, ttype, tvalue = c.split(":", maxsplit=2)
+                if ttype == "i":
+                    tags[tname] = int(tvalue)
+                else:
+                    tags[tname] = tvalue
 
-            return CB, MI, chrom, strand, gn, gf, AS
+            return chrom, strand, tags
 
         bundle = []
         last_qname = ""
@@ -250,121 +311,78 @@ class BaseCounter:
         if bundle:
             yield bundle
 
-    ## main function: alignment bundle -> counting channels
     def process_bundle(self, bundle):
+        """
+        main function: alignment bundle -> counting channels.
+        This is where the logic implemented by select_alignment(), select_gene() etc is wired together.
+
+        bundle->[if non-unique->select_alignment()]->select_gene()->determine_gene_and_channels()
+        """
         self.stats["SAM_bundles_total"] += 1
         gene = None
         selected = None
         channels = set()
-        # self.set_reference(reference_name)
-        # print(f"bundle={bundle}")
-        if len(bundle) == 1:
-            self.stats["N_aln_unique"] += 1
-            selected = self.unique_alignment(bundle)
-        elif self.handle_multimappers:
-            self.stats["N_aln_multi"] += 1
-            selected = self.select_alignment(bundle)
-            if selected:
-                self.stats["N_aln_selected"] += 1
-            else:
-                self.stats["N_aln_selection_failed"] += 1
-        # print(f"selected -> {selected}")
+
+        selected = self.select_alignment(bundle)
+        chrom, strand, tags = selected
         if selected:
-            self.stats["N_aln_countable"] += 1
-            cell, umi, chrom, strand, gn, gf, score = selected
-            # self.stats[f'N_aln_{chrom}'] += 1
-            self.stats[f"N_aln_{strand}"] += 1
+            gene, gf = self.select_gene(chrom, strand, tags)
+            if (gene is not None) and (gene != "-"):
+                # TODO: discuss merits of counting intergenic. It may be a
+                # meaningful QC stat for DNA contamination. For now: discard
 
-            gene, gf = self.select_gene(*selected)
-            # print(f"gene, gf -> {gene}, {gf}")
-            if len(gn) == 1:
-                gene = gn[0]
-                if gene is None or gene == "-":
-                    self.stats["N_gene_none"] += 1
-                else:
-                    self.stats["N_gene_unique"] += 1
-                # gf = gf
-                # print(f"uniq gene: {gene} {gf}")
-            else:
-                self.stats["N_gene_multi"] += 1
-                if gene:
-                    self.stats["N_gene_selected"] += 1
-                else:
-                    self.stats["N_gene_selection_failed"] += 1
-
-            # count the alignment every way that the counter prescribes
-            if gene != "-":
                 # print(f"gene={gene} gf={gf}")
-                self.stats["N_aln_counted"] += 1
-                if gf[0].islower():
-                    self.stats["N_aln_antisense"] += 1
-                else:
-                    self.stats["N_aln_sense"] += 1
 
                 # handle the whole uniqueness in a way that can parallelize
-                # maybe split by UMI[:2]? This way, distributed uniq() sets would
+                # maybe split by UMI[:k] or CB[:k]? This way, distributed uniq() sets would
                 # never overlap
-                key = hash((cell, umi))  # gene,
+                cell = tags["CB"]
+                umi = tags["MI"]
+                key = hash((cell, umi))
                 uniq = not (key in self.uniq)
                 if uniq:
                     self.uniq.add(key)
 
-                gene, channels = self.determine_gene_and_channels(gene, gf, uniq)
-                for c in channels:
-                    self.stats[f"N_channel_{c}"] += 1
-
-                if not channels:
-                    self.stats[f"N_channel_NONE"] += 1
-        else:
-            cell = "-"
-            gene = "-"
-            channels = set()
+                channels = self.select_channels(gene, gf, uniq)
+                return cell, gene, channels
 
         # print(f"process_bundle()-> cell={cell} gene={gene}, channels={channels}")
-        return cell, gene, channels
 
 
 class CustomIndexCounter(BaseCounter):
 
     logger = logging.getLogger("scbamtools.quant.CustomIndexCounter")
 
-    def unique_alignment(self, bundle):
-        CB, MI, chrom, strand, _, _, score = bundle[0]
-        return (CB, MI, chrom, strand, [chrom], ["N"], score)
+    def unique_alignment(self, chrom, strand, tags):
+        tags["gn"] = [chrom]
+        tags["gf"] = [
+            "N",
+        ]
+        return (chrom, strand, tags)
 
-    def select_alignment(self, bundle):
+    def select_multimapper(self, bundle):
         # only consider alignments on the + strand (for custom indices)
-        plus = [b for b in bundle if b[1] == "+"]
-        if plus:
-            return self.unique_alignment(plus)
-
-    # def determine_gene_and_channels(self, gene, gf, uniq):
-    #     if uniq:
-    #         channels = {'reads', 'counts'}
-    #     else:
-    #         channels = {'reads'}
-
-    #     return gene, channels
-
-    # select_gene and exon_intron_disambiguation never get called
-    # and thus do not need to be implemented
+        for b in bundle:
+            if b[1] == "+":
+                return self.unique_alignment(*b)
 
 
 class miRNAPrecursorCounter(BaseCounter):
 
     logger = logging.getLogger("scbamtools.quant.miRNAPrecursorCounter")
 
-    def unique_alignment(self, bundle):
+    def unique_alignment(self, chrom, strand, tags):
         # return the first alignment, no matter how many alternatives we find
-        CB, MI, chrom, strand, gn, gf, score = bundle[0]
+        gn = tags["gn"].split(",")
+        gf = tags["gf"].split(",")
         # print(
         #     f"miRNAPrecursorCounter unique_alignment({CB} {MI} {chrom} {strand} {gn} {gf} {score})"
         # )
-        return (CB, MI, chrom, strand, gn.split(","), gf.split(","), score)
+        return (chrom, strand, gn, gf, tags)
 
-    def select_gene(self, CB, MI, chrom, strand, gn, gf, score):
+    def select_gene(self, chrom, strand, tags):
         # give precedent to loop
-        w_loop = [(g, f) for g, f in zip(gn, gf) if g.endswith("loop")]
+        w_loop = [(g, f) for g, f in zip(tags["gn"], tags["gf"]) if g.endswith("loop")]
         if w_loop:
             return w_loop[0]
         # elif:
