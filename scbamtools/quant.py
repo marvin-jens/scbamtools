@@ -380,24 +380,26 @@ class miRNAPrecursorCounter(CustomIndexCounter):
 
     logger = logging.getLogger("scbamtools.quant.miRNAPrecursorCounter")
 
-    def unique_alignment(self, chrom, strand, tags):
+    def select_alignment(self, bundle):
+        # has to return either (chrom, strand, tags) or None
+        chrom, strand, tags = bundle[0]
         # return the first alignment, no matter how many alternatives we find
-        gn = tags["gn"].split(",")
-        gf = tags["gf"].split(",")
-        # print(
-        #     f"miRNAPrecursorCounter unique_alignment({CB} {MI} {chrom} {strand} {gn} {gf} {score})"
-        # )
-        return (chrom, strand, gn, gf, tags)
+        return (chrom, strand, tags)
 
     def select_gene(self, chrom, strand, tags):
         # give precedent to loop
-        gn = tags["gn"]
-        gf = tags["gf"]
+        gn = tags["gn"].split(",")
+        gf = tags["gf"].split(",")
         for g, f in zip(gn, gf):
             if g.endswith("loop"):
                 return g, f
         else:
             return gn[0], gf[0]
+
+    def select_channels(self, gf, uniq, tags):
+        channels = super().select_channels(gf, uniq, tags)
+        if uniq and ("polyA" in tags.get("A3", "")):
+            channels.add("polyA")
 
 
 class mRNACounter(BaseCounter):
