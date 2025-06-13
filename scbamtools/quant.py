@@ -353,8 +353,8 @@ class CustomIndexCounter(BaseCounter):
     logger = logging.getLogger("scbamtools.quant.CustomIndexCounter")
 
     def unique_alignment(self, chrom, strand, tags):
-        tags["gn"] = [chrom]
-        tags["gf"] = ["N"]
+        tags["gn"] = chrom
+        tags["gf"] = "N"
         return (chrom, strand, tags)
 
     def select_alignment(self, bundle):
