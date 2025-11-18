@@ -257,8 +257,9 @@ def query_barcodes(args):
         hit_variants = np.zeros(len(idx_data), dtype=np.int16)
         hits = np.zeros(len(idx_data), dtype=np.uint64)
         T0 = time()
-        n_total_queries = fq.query_idx64_variants(
-            list(idx_data), hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix
+        n_total_queries = fq.query_idx64_variants_omp(
+        # n_total_queries = fq.query_idx64_variants(
+            idx_data, hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix, n_threads=args.threads
         )
         dT = time() - T0
         rate = len(idx_data) / dT / 1000
@@ -413,6 +414,12 @@ def parse_args():
         "--stats-out",
         default="bc_query_stats.tsv",
         help="path to the simple flat file with barcodes to be queried (default=stdin)",
+    )
+    query_parser.add_argument(
+        "--threads",
+        type=int,
+        default=8,
+        help="number of parallel threads to use for querying (default=8)",
     )
 
     args = parser.parse_args()

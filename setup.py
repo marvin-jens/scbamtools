@@ -23,6 +23,8 @@ extensions = [
         "scbamtools.cython.fastquery",
         ["scbamtools/cython/fastquery.pyx"],
         include_dirs=[numpy.get_include()],
+        extra_compile_args=['-fopenmp'],
+        extra_link_args=['-fopenmp'],
     ),
 ]
 

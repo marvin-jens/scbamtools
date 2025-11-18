@@ -13,6 +13,8 @@ from types import *
 from libc cimport stdlib, stdio
 from libc.string cimport strncmp
 
+from cython.parallel import prange, parallel
+from openmp cimport omp_set_num_threads
 
 cdef uint32_t[256] base_map
 for i in range(256):
@@ -183,7 +185,7 @@ def load_and_unique_sorted_barcodes(fname, int k=25, int n_max=0, bint unique=Fa
     dT = time() - T0
     rate = n / dT / 1000
     logging.debug(f"read {n} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)")
-    return bc_list
+    return np.array(bc_list, dtype=np.uint64)
 
 
 cpdef ingest_sequences(list seq_list):
@@ -227,7 +229,7 @@ cdef uint32_t seq_to_uint32_slice(bytes seq, Py_ssize_t start, Py_ssize_t length
 @cython.initializedcheck(False)
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
-cdef uint8_t find_in_list(uint32_t idx_s, uint32_t* slist, uint32_t n):
+cdef uint8_t find_in_list(uint32_t idx_s, uint32_t* slist, uint32_t n) nogil:
     """
     Find idx_s in the sorted suffix list slist of length n.
     Return 1 if found, 0 otherwise.
@@ -539,7 +541,7 @@ cdef int make_variants_off_by_one(uint32_t idx_s, uint32_t* variants, uint32_t s
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
 #@cython.nogil
-def query_idx64_off_by_one(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
+def query_idx64_off_by_one(ndarray[np_uint64_t, ndim=1] bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
     """
     For each barcode in bc_list, check whether it is in the index defined by PI and SL.
     Mark hits in the hits array (1 = hit, 0 = no hit).
@@ -555,16 +557,17 @@ def query_idx64_off_by_one(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarr
     cdef uint64_t bc
     # create typed memoryviews for fast C-level access
     # PI and SL can be read-only (e.g. memory-mapped files), so use const views
-    cdef const uint32_t[:] PI_view = PI
-    cdef const uint32_t[:] SL_view = SL
-    cdef uint8_t[:] hits_view = hits
+    cdef const uint64_t[::1] bc_list_view = bc_list
+    cdef const uint32_t[::1] PI_view = PI
+    cdef const uint32_t[::1] SL_view = SL
+    cdef uint8_t[::1] hits_view = hits
     cdef uint8_t rshift = 2 * l_suffix
     cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
     cdef uint32_t[16*3] idx_s_variants # 15 * 3 = 45 variants for single-base off-by-one
     cdef uint32_t[16*3] idx_p_variants
 
     for i in range(n):
-        bc = bc_list[i]
+        bc = bc_list_view[i]
 
         # fast-path for bytes: read raw buffer and compute indices without Python indexing
         idx_p = <uint32_t>(bc >> rshift)
@@ -602,7 +605,7 @@ def query_idx64_off_by_one(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarr
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
 @cython.inline
-cdef int make_insertions(uint64_t idx, uint64_t* variants, uint64_t l=25):
+cdef int make_insertions(uint64_t idx, uint64_t* variants, uint64_t l=25) nogil:
     """
     Generate all single-base insertions/clipped to l again.
     Write into an array of l*4 uint32_t values.
@@ -661,7 +664,7 @@ cdef int make_insertions(uint64_t idx, uint64_t* variants, uint64_t l=25):
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
 @cython.inline
-cdef int make_deletions(uint64_t idx, uint64_t* variants, uint64_t l=25):
+cdef int make_deletions(uint64_t idx, uint64_t* variants, uint64_t l=25) nogil:
     """
     Generate all single-base deletions, padded on either side to l again.
     Write into an array of l*4 uint32_t values.
@@ -716,7 +719,7 @@ cdef int make_deletions(uint64_t idx, uint64_t* variants, uint64_t l=25):
 @cython.initializedcheck(False)
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
-cdef int make_substitutions(uint64_t idx_s, uint64_t* variants, uint64_t start=0, uint64_t end=15):
+cdef int make_substitutions(uint64_t idx_s, uint64_t* variants, uint64_t start=0, uint64_t end=15) nogil:
     """
     Generate all single-base substitutions variants of a two-bit coded sequence index.
     """
@@ -751,7 +754,7 @@ cdef int make_substitutions(uint64_t idx_s, uint64_t* variants, uint64_t start=0
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
 # @cython.nogil
-def query_idx64_variants(list bc_list, ndarray[np_uint64_t, ndim=1] hits, ndarray[np_int16_t, ndim=1] hit_variants, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
+def query_idx64_variants(ndarray[np_uint64_t, ndim=1] bc_list, ndarray[np_uint64_t, ndim=1] hits, ndarray[np_int16_t, ndim=1] hit_variants, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
     """
     For each barcode in bc_list, check whether it is in the index defined by PI and SL.
     Mark hits in the hits array (1 = hit, 0 = no hit).
@@ -768,17 +771,18 @@ def query_idx64_variants(list bc_list, ndarray[np_uint64_t, ndim=1] hits, ndarra
     cdef uint64_t bc, l = l_prefix + l_suffix, n_variants, n_tested, n_total_queries=0, n_trigger_subs_del = 8 * (l - 1)  - 1
     # create typed memoryviews for fast C-level access
     # PI and SL can be read-only (e.g. memory-mapped files), so use const views
-    cdef const uint32_t[:] PI_view = PI
-    cdef const uint32_t[:] SL_view = SL
-    cdef int16_t[:] hit_variants_view = hit_variants
-    cdef uint64_t[:] hits_view = hits
+    cdef const uint32_t[::1] PI_view = PI
+    cdef const uint32_t[::1] SL_view = SL
+    cdef const uint64_t[::1] bc_list_view = bc_list
+    cdef int16_t[::1] hit_variants_view = hit_variants
+    cdef uint64_t[::1] hits_view = hits
     cdef uint8_t rshift = 2 * l_suffix
     cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
     cdef uint64_t[1000] idx_variants
 
     for i in range(n):
         n_tested = 0
-        bc = bc_list[i]
+        bc = bc_list_view[i]
         idx_variants[0] = bc # exact match
         n_variants = 1
 
@@ -813,6 +817,84 @@ def query_idx64_variants(list bc_list, ndarray[np_uint64_t, ndim=1] hits, ndarra
                 n_variants += make_deletions(bc, &idx_variants[n_variants], l)
             
             n_tested += 1
+
+        n_total_queries += n_tested
+
+    return n_total_queries
+
+
+
+@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.overflowcheck(False)
+@cython.initializedcheck(False)
+@cython.nonecheck(False)
+@cython.exceptval(check=False)
+# @cython.nogil
+def query_idx64_variants_omp(ndarray[np_uint64_t, ndim=1] bc_list, ndarray[np_uint64_t, ndim=1] hits, ndarray[np_int16_t, ndim=1] hit_variants, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix, int n_threads=8):
+    """
+    For each barcode in bc_list, check whether it is in the index defined by PI and SL.
+    Mark hits in the hits array (1 = hit, 0 = no hit).
+    bc_list: list of bytes objects (barcodes)
+    hits: 1D numpy array of uint8_t, preallocated, length = len(bc_list)
+    PI: 1D numpy array of uint32_t, prefix index
+    SL: 1D numpy array of uint32_t, suffix list
+    l_prefix: length of prefix in bases
+    """
+    omp_set_num_threads(n_threads)
+    cdef Py_ssize_t n = len(bc_list)
+    cdef Py_ssize_t i
+    cdef int h
+    cdef uint32_t j=0, idx_p, idx_s, ofs, nn
+    cdef uint64_t bc, l = l_prefix + l_suffix, n_variants, n_tested, n_total_queries=0, n_trigger_subs_del = 8 * (l - 1)  - 1
+    # create typed memoryviews for fast C-level access
+    # PI and SL can be read-only (e.g. memory-mapped files), so use const views
+    cdef const uint32_t[::1] PI_view = PI
+    cdef const uint32_t[::1] SL_view = SL
+    cdef const uint64_t[::1] bc_list_view = bc_list
+    cdef int16_t[::1] hit_variants_view = hit_variants
+    cdef uint64_t[::1] hits_view = hits
+    cdef uint8_t rshift = 2 * l_suffix
+    cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
+    cdef uint64_t[1000] idx_variants
+
+    for i in prange(n, nogil=True, schedule='dynamic'):
+        n_tested = 0
+        bc = bc_list_view[i]
+        idx_variants[0] = bc # exact match
+        n_variants = 1
+
+        while n_tested < n_variants:
+            # print(f"n_tested={n_tested} n_variants={n_variants}")
+            bc = idx_variants[n_tested]
+            # fast-path for bytes: read raw buffer and compute indices without Python indexing
+            idx_p = <uint32_t>(bc >> rshift) # prefix
+            # print(f"idx_p={idx_p} for bc={bc_var}")
+
+            ofs = PI_view[idx_p]
+            # print("ofs=", ofs)
+
+            if ofs != 0:
+                idx_s = <uint32_t>(bc & mask) # suffix
+                nn = SL_view[ofs]
+                # print(f"idx_s={idx_s} nn={nn}")
+                h = find_in_list(idx_s, &SL_view[ofs+1], nn)
+                if h:
+                    hit_variants_view[i] = n_tested + 1 # the variant number that had the hit (which edit)
+                    hits_view[i] = bc # the variant that had the hit, i.e. the corrected barcode
+                    break # stop at first hit
+
+            if n_tested == 0:
+                # we did not get a hit for the original sequence,
+                # generate insertion variants for the original sequence
+                n_variants = n_variants + make_insertions(bc, &idx_variants[n_variants], l)
+
+            # if n_tested == n_trigger_subs_del:
+                # we have tried all insertion variants, now generate substitution and deletion variants
+                n_variants = n_variants + make_substitutions(bc, &idx_variants[n_variants], 0, l)
+                n_variants = n_variants + make_deletions(bc, &idx_variants[n_variants], l)
+            
+            n_tested = n_tested + 1
 
         n_total_queries += n_tested
 
