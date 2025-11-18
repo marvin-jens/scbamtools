@@ -19,6 +19,11 @@ extensions = [
         ["scbamtools/cython/bctree.pyx"],
         include_dirs=[numpy.get_include()],
     ),
+    Extension(
+        "scbamtools.cython.fastquery",
+        ["scbamtools/cython/fastquery.pyx"],
+        include_dirs=[numpy.get_include()],
+    ),
 ]
 
 if __name__ == "__main__":
