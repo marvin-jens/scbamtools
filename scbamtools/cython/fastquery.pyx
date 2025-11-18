@@ -14,7 +14,7 @@ from libc cimport stdlib, stdio
 from libc.string cimport strncmp
 
 from cython.parallel import prange, parallel
-from openmp cimport omp_set_num_threads
+from openmp cimport omp_set_num_threads, omp_get_thread_num
 
 cdef uint32_t[256] base_map
 for i in range(256):
@@ -856,46 +856,60 @@ def query_idx64_variants_omp(ndarray[np_uint64_t, ndim=1] bc_list, ndarray[np_ui
     cdef uint64_t[::1] hits_view = hits
     cdef uint8_t rshift = 2 * l_suffix
     cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
-    cdef uint64_t[1000] idx_variants
+    cdef uint64_t* idx_variants
+    cdef uint64_t* idx_variants_private = <uint64_t*> stdlib.malloc(1000 * sizeof(uint64_t) * n_threads)
+    cdef int thread_id
+    cdef int[128] n_total_queries_local
+    for j in range(n_threads):
+        n_total_queries_local[j] = 0
 
-    for i in prange(n, nogil=True, schedule='dynamic'):
-        n_tested = 0
-        bc = bc_list_view[i]
-        idx_variants[0] = bc # exact match
-        n_variants = 1
+    with nogil, parallel():
+        # allocate private copies of idx_variants for each thread
+        thread_id = omp_get_thread_num()
+        idx_variants = &idx_variants_private[thread_id * 1000]
 
-        while n_tested < n_variants:
-            # print(f"n_tested={n_tested} n_variants={n_variants}")
-            bc = idx_variants[n_tested]
-            # fast-path for bytes: read raw buffer and compute indices without Python indexing
-            idx_p = <uint32_t>(bc >> rshift) # prefix
-            # print(f"idx_p={idx_p} for bc={bc_var}")
+        for i in prange(n, schedule='dynamic'):
+            n_tested = 0
+            bc = bc_list_view[i]
+            idx_variants[0] = bc # exact match
+            n_variants = 1
 
-            ofs = PI_view[idx_p]
-            # print("ofs=", ofs)
+            while n_tested < n_variants:
+                # print(f"n_tested={n_tested} n_variants={n_variants}")
+                bc = idx_variants[n_tested]
+                # fast-path for bytes: read raw buffer and compute indices without Python indexing
+                idx_p = <uint32_t>(bc >> rshift) # prefix
+                # print(f"idx_p={idx_p} for bc={bc_var}")
 
-            if ofs != 0:
-                idx_s = <uint32_t>(bc & mask) # suffix
-                nn = SL_view[ofs]
-                # print(f"idx_s={idx_s} nn={nn}")
-                h = find_in_list(idx_s, &SL_view[ofs+1], nn)
-                if h:
-                    hit_variants_view[i] = n_tested + 1 # the variant number that had the hit (which edit)
-                    hits_view[i] = bc # the variant that had the hit, i.e. the corrected barcode
-                    break # stop at first hit
+                ofs = PI_view[idx_p]
+                # print("ofs=", ofs)
 
-            if n_tested == 0:
-                # we did not get a hit for the original sequence,
-                # generate insertion variants for the original sequence
-                n_variants = n_variants + make_insertions(bc, &idx_variants[n_variants], l)
+                if ofs != 0:
+                    idx_s = <uint32_t>(bc & mask) # suffix
+                    nn = SL_view[ofs]
+                    # print(f"idx_s={idx_s} nn={nn}")
+                    h = find_in_list(idx_s, &SL_view[ofs+1], nn)
+                    if h:
+                        hit_variants_view[i] = n_tested + 1 # the variant number that had the hit (which edit)
+                        hits_view[i] = bc # the variant that had the hit, i.e. the corrected barcode
+                        break # stop at first hit
 
-            # if n_tested == n_trigger_subs_del:
-                # we have tried all insertion variants, now generate substitution and deletion variants
-                n_variants = n_variants + make_substitutions(bc, &idx_variants[n_variants], 0, l)
-                n_variants = n_variants + make_deletions(bc, &idx_variants[n_variants], l)
-            
-            n_tested = n_tested + 1
+                if n_tested == 0:
+                    # we did not get a hit for the original sequence,
+                    # generate insertion variants for the original sequence
+                    n_variants = n_variants + make_insertions(bc, &idx_variants[n_variants], l)
 
-        n_total_queries += n_tested
+                # if n_tested == n_trigger_subs_del:
+                    # we have tried all insertion variants, now generate substitution and deletion variants
+                    n_variants = n_variants + make_substitutions(bc, &idx_variants[n_variants], 0, l)
+                    n_variants = n_variants + make_deletions(bc, &idx_variants[n_variants], l)
+                
+                n_tested = n_tested + 1
 
+            n_total_queries_local[thread_id] = n_total_queries_local[thread_id] + n_tested
+    
+    for j in range(n_threads):
+        n_total_queries += n_total_queries_local[j]
+
+    stdlib.free(idx_variants_private)
     return n_total_queries

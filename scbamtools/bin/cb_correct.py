@@ -44,7 +44,7 @@ class BCIndex:
         self.logger.debug(f"loaded {n_total *4} bytes packed references via MMAP:")
         self.logger.debug(f"  - prefix length: {self.l_prefix} suffix length: {self.l_suffix}")
         self.logger.debug(f"  - {self.n_seqs} barcodes")
-        self.logger.debug(f"  - {n_total/self.n_seqs:.1f} bytes/barcode")
+        self.logger.debug(f"  - {4 * n_total/self.n_seqs:.1f} bytes/barcode")
         self.logger.debug(f"  - {self.n_lists}/{self.n_prefixes} suffix lists (density: {self.n_lists/self.n_prefixes:.2f})")
         self.logger.debug(f"  - {self.n_seqs/self.n_lists:.1f} average suffixes per list (expected recursion depth {np.log2(self.n_seqs/self.n_lists):.1f})")
 
@@ -258,9 +258,12 @@ def query_barcodes(args):
         hits = np.zeros(len(idx_data), dtype=np.uint64)
         T0 = time()
         n_total_queries = fq.query_idx64_variants_omp(
-        # n_total_queries = fq.query_idx64_variants(
             idx_data, hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix, n_threads=args.threads
         )
+        # n_total_queries = fq.query_idx64_variants(
+        #     idx_data, hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix
+        # )
+
         dT = time() - T0
         rate = len(idx_data) / dT / 1000
         logger.debug(f"queried {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)")
