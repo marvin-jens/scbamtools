@@ -9,6 +9,7 @@ from collections import defaultdict
 from time import time
 import scbamtools.util as util
 import scbamtools.cython.fastquery as fq
+
 # from scbamtools import bcindex as bcindex
 import mrfifo as mf
 
@@ -23,7 +24,10 @@ class BCIndex:
     def __init__(self, path="bcref.mmap"):
         self.logger = logging.getLogger("BCIndex")
         self.MMAP = np.memmap(f"{path}", mode="r", dtype=np.uint32)
-        assert (self.MMAP[:4] == np.array([ord('B'), ord('C'), ord('I'), 1], dtype=np.uint32)).all(), "invalid BCI file"
+        assert (
+            self.MMAP[:4]
+            == np.array([ord("B"), ord("C"), ord("I"), 1], dtype=np.uint32)
+        ).all(), "invalid BCI file"
 
         self.l_prefix = self.MMAP[4]
         self.l_suffix = self.MMAP[5]
@@ -33,20 +37,30 @@ class BCIndex:
         self.n_lists = self.MMAP[7]
         self.n_suffixes = self.MMAP[8]
 
-        n_header = 9  # 'BCI' + version + l_prefix + l_suffix + n_seqs + n_lists + n_suffixes
+        n_header = (
+            9  # 'BCI' + version + l_prefix + l_suffix + n_seqs + n_lists + n_suffixes
+        )
         n_prefix = 2 ** (self.l_prefix * 2)
-        n_slists = self.n_suffixes + self.n_lists  # one uint32 for length of each suffix list
+        n_slists = (
+            self.n_suffixes + self.n_lists
+        )  # one uint32 for length of each suffix list
         n_total = n_header + n_prefix + n_slists
 
         self.PI = self.MMAP[n_header : n_header + self.n_prefixes]
-        self.SL = self.MMAP[n_header + self.n_prefixes : ]
+        self.SL = self.MMAP[n_header + self.n_prefixes :]
 
         self.logger.debug(f"loaded {n_total *4} bytes packed references via MMAP:")
-        self.logger.debug(f"  - prefix length: {self.l_prefix} suffix length: {self.l_suffix}")
+        self.logger.debug(
+            f"  - prefix length: {self.l_prefix} suffix length: {self.l_suffix}"
+        )
         self.logger.debug(f"  - {self.n_seqs} barcodes")
         self.logger.debug(f"  - {4 * n_total/self.n_seqs:.1f} bytes/barcode")
-        self.logger.debug(f"  - {self.n_lists}/{self.n_prefixes} suffix lists (density: {self.n_lists/self.n_prefixes:.2f})")
-        self.logger.debug(f"  - {self.n_seqs/self.n_lists:.1f} average suffixes per list (expected recursion depth {np.log2(self.n_seqs/self.n_lists):.1f})")
+        self.logger.debug(
+            f"  - {self.n_lists}/{self.n_prefixes} suffix lists (density: {self.n_lists/self.n_prefixes:.2f})"
+        )
+        self.logger.debug(
+            f"  - {self.n_seqs/self.n_lists:.1f} average suffixes per list (expected recursion depth {np.log2(self.n_seqs/self.n_lists):.1f})"
+        )
 
     @classmethod
     def build_from_barcodes(cls, src, mmap_path="bcref.mmap", l_prefix=10, l_suffix=15):
@@ -55,7 +69,7 @@ class BCIndex:
         logger.debug("building temp set list")
 
         sets = defaultdict(set)
-        
+
         # [set() for i in range(2 ** (l_prefix * 2))]
 
         logger.debug("* ingesting sequences")
@@ -90,18 +104,20 @@ class BCIndex:
             n_lists += 1
             n_suffixes += len(S)
 
-        logger.debug(f"... allocating buffers for {n_lists} suffix lists with total of {n_suffixes} suffixes")
+        logger.debug(
+            f"... allocating buffers for {n_lists} suffix lists with total of {n_suffixes} suffixes"
+        )
 
-        n_header = 9  # 'BCI' + version + l_prefix + l_suffix + n_seqs + n_lists + n_suffixes
+        n_header = (
+            9  # 'BCI' + version + l_prefix + l_suffix + n_seqs + n_lists + n_suffixes
+        )
         n_prefix = 2 ** (l_prefix * 2)
         n_slists = n_suffixes + n_lists  # one uint32 for length of each suffix list
         n_total = n_header + n_prefix + n_slists
-        logger.debug(f"* total MMAP size: {n_total *4} bytes")    
+        logger.debug(f"* total MMAP size: {n_total *4} bytes")
 
-        MMAP = np.memmap(
-            mmap_path, mode="w+", shape=n_total+1, dtype=np.uint32
-        )
-        MMAP[0:4] = np.array([ord('B'), ord('C'), ord('I'), 1], dtype=np.uint32)
+        MMAP = np.memmap(mmap_path, mode="w+", shape=n_total + 1, dtype=np.uint32)
+        MMAP[0:4] = np.array([ord("B"), ord("C"), ord("I"), 1], dtype=np.uint32)
         MMAP[4] = np.uint32(l_prefix)
         MMAP[5] = np.uint32(l_suffix)
         MMAP[6] = n_seqs
@@ -109,7 +125,7 @@ class BCIndex:
         MMAP[8] = n_suffixes
 
         PI = MMAP[n_header : n_header + n_prefix]
-        SL = MMAP[n_header + n_prefix : ]
+        SL = MMAP[n_header + n_prefix :]
 
         logger.debug("* packing suffix lists")
         ofs = 1  # one buffer byte, and keep 0 as "no list"
@@ -141,7 +157,6 @@ class BCIndex:
                     idx_s = self.SL[l_ofs + i]
                     suffix = _to_seq(idx_s, self.l_suffix)
                     yield f"{prefix}{suffix}"
-
 
     def query_idx64(self, bc_list):
         logger = logging.getLogger("BCIndex.query_idx64()")
@@ -178,7 +193,7 @@ def reader(fname, n_max=None):
         if n_max and n > n_max:
             break
 
-        seq = line.rstrip().split("\t", maxsplit=1)[0] #.replace("N", "A")
+        seq = line.rstrip().split("\t", maxsplit=1)[0]  # .replace("N", "A")
         yield fq.seq_to_uint64(bytes(seq, "ascii"))
 
     dT = time() - T0
@@ -188,16 +203,16 @@ def reader(fname, n_max=None):
 
 def make_edit_dict(l=25):
     d = {
-        0:'X', # no match
-        1:'=', # exact match
+        0: "X",  # no match
+        1: "=",  # exact match
     }
-    
+
     i = 2
-    
+
     # insertions first
     for pos in range(l):
         for b in "ACGT":
-            if pos < l-1:
+            if pos < l - 1:
                 d[i] = f"I{l-pos}{b}1"
                 i += 1
             if pos > 0:
@@ -217,7 +232,7 @@ def make_edit_dict(l=25):
             i += 1
             d[i] = f"_{b}..{l-pos}"
             i += 1
-    
+
     return d
 
 
@@ -247,8 +262,9 @@ def query_barcodes(args):
     )
     dT = time() - T0
     rate = len(idx_data) / dT / 1000
-    logger.debug(f"loaded {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)")
-
+    logger.debug(
+        f"loaded {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)"
+    )
 
     if args.exact_only:
         pass
@@ -258,7 +274,14 @@ def query_barcodes(args):
         hits = np.zeros(len(idx_data), dtype=np.uint64)
         T0 = time()
         n_total_queries = fq.query_idx64_variants_omp(
-            idx_data, hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix, n_threads=args.threads
+            idx_data,
+            hits,
+            hit_variants,
+            bci.PI,
+            bci.SL,
+            bci.l_prefix,
+            bci.l_suffix,
+            n_threads=args.threads,
         )
         # n_total_queries = fq.query_idx64_variants(
         #     idx_data, hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix
@@ -266,9 +289,13 @@ def query_barcodes(args):
 
         dT = time() - T0
         rate = len(idx_data) / dT / 1000
-        logger.debug(f"queried {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)")
+        logger.debug(
+            f"queried {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)"
+        )
         n_total_hits = (hit_variants > 0).sum()
-        logger.debug(f"found {n_total_hits}/{len(idx_data)} hits (match-rate = {n_total_hits/len(idx_data):.4f})")
+        logger.debug(
+            f"found {n_total_hits}/{len(idx_data)} hits (match-rate = {n_total_hits/len(idx_data):.4f})"
+        )
 
         logger.debug(
             f"total queries processed: {n_total_queries} ({n_total_queries/len(idx_data):.2f} per barcode) rate: {n_total_queries / dT / 1000:.2f} k/sec)"
@@ -293,6 +320,152 @@ def query_barcodes(args):
             match_bc = fq.uint64_to_seq(hits[i], bci.l)
             edit = d[hit_variants[i]]
             fout.write(f"{bc}\t{match_bc}\t{edit}\n")
+
+
+def process_sam_records(input, output, args):
+    logger = util.setup_logging(args, name="scbamtools.cb_correct.process_sam_records")
+    logger.debug("loading barcode index")
+    bci = BCIndex(path=args.index)
+
+    d = make_edit_dict(l=bci.l)
+
+    batch_size = 2000000
+    batch = []
+    cb_batch = []
+
+    edit_counts = defaultdict(int)
+
+    def process_batch(batch, cb_batch):
+        # convert CBs to uint64
+        cb_idxs = np.array(
+            [fq.seq_to_uint64(bytes(cb, "ascii")) for cb in cb_batch],
+            dtype=np.uint64,
+        )
+
+        # query index
+        hit_variants = np.zeros(len(cb_idxs), dtype=np.int16)
+        hits = np.zeros(len(cb_idxs), dtype=np.uint64)
+        fq.query_idx64_variants_omp(
+            cb_idxs,
+            hits,
+            hit_variants,
+            bci.PI,
+            bci.SL,
+            bci.l_prefix,
+            bci.l_suffix,
+            n_threads=args.threads,
+        )
+
+        for i, (line, cb_tag) in enumerate(zip(batch, cb_batch)):
+            hit_variant = hit_variants[i]
+            hit = hits[i]
+
+            edit = d[hit_variant]
+            edit_counts[edit] += 1
+            if hit_variant > 0:
+                # found a match, update CB tag
+                corrected_cb = fq.uint64_to_seq(hit, bci.l)
+                line = line.replace(
+                    f"CB:Z:{cb_tag}", f"CB:Z:{corrected_cb}\tcb:Z:{edit}"
+                )
+
+                output.write(line)
+            else:
+                pass
+                # no match, pass through
+                # output_fifo.write(line)
+
+    # main iteration over SAM records
+    for line in input:
+        if line.startswith("@"):
+            # header line, pass through
+            output.write(line)
+            continue
+
+        fields = line.rstrip().split("\t")
+        # find CB tag
+        cb_tag = None
+        for field in fields[11:]:
+            if field.startswith("CB:Z:"):
+                cb_tag = field[5:]
+                break
+
+        if cb_tag is None:
+            # no CB tag, pass through
+            # output_fifo.write(line)
+            continue
+
+        batch.append(line)
+        cb_batch.append(cb_tag)
+
+        if len(batch) >= batch_size:
+            process_batch(batch, cb_batch)
+            batch = []
+            cb_batch = []
+
+    # process remaining records
+    if len(batch) > 0:
+        process_batch(batch, cb_batch)
+
+    return edit_counts
+
+
+def correct_cram(args):
+    logger = util.setup_logging(args, name="scbamtools.cb_correct.correct_cram")
+    logger.debug("loading barcode index")
+
+    w = (
+        mf.Workflow("cb")
+        .BAM_reader(input=args.input, threads=args.threads_read)
+        .add_job(
+            func=process_sam_records,
+            input=mf.FIFO("input_sam", "rt"),
+            output=mf.FIFO("out_sam", "wt"),
+            args=args,
+        )
+        # .add_job(
+        #     func=util.update_header,
+        #     input=mf.FIFO("orig_header", "rt"),
+        #     output=mf.FIFO("new_header", "wt"),
+        #     progname="cb_correct.py",
+        # )
+        # .distribute(
+        #     input=mf.FIFO("input_sam", "rt"),
+        #     outputs=mf.FIFO("dist{n}", "wt", n=args.threads_work),
+        #     chunk_size=1,
+        #     header_detect_func=is_header,
+        #     header_broadcast=False,
+        #     header_fifo=mf.FIFO("orig_header", "wt"),
+        # )
+        # .workers(
+        #     input=mf.FIFO("dist{n}", "rt"),
+        #     output=mf.FIFO("out{n}", "wt"),
+        #     func=annotate_SAM,
+        #     compiled_annotation=args.compiled,
+        #     n=args.threads_work,
+        # )
+        # .add_job(
+        #     func=util.update_header,
+        #     input=mf.FIFO("orig_header", "rt"),
+        #     output=mf.FIFO("new_header", "wt"),
+        #     progname="ann.py",
+        # )
+        # .collect(
+        #     inputs=mf.FIFO("out{n}", "rt", n=args.threads_work),
+        #     header_fifo=mf.FIFO("new_header", "rt"),
+        #     output=mf.FIFO("out_sam", "wt"),
+        #     chunk_size=1,
+        # )
+        .funnel(
+            input=mf.FIFO("out_sam", "rt"),
+            output=args.bam_out,
+            _manage_fifos=False,
+            func=mf.parts.bam_writer,
+            threads=args.threads_write,
+            fmt=f"Sh{args.bam_out_mode}",
+        )
+        .run()
+    )
 
 
 def parse_args():
@@ -336,46 +509,55 @@ def parse_args():
         help="if barcode index file exists, overwrite it (default=False)",
     )
 
-    # # correct
-    # correct_parser = subparsers.add_parser("tag")
-    # correct_parser.set_defaults(func=main)
-    # correct_parser.add_argument(
-    #     "--compiled",
-    #     default=None,
-    #     help="path to a directoy in which a compiled version of the GTF is stored",
-    # )
-    # correct_parser.add_argument(
-    #     "--bam-in", default="/dev/stdin", help="path to the input BAM (default=stdin)"
-    # )
-    # correct_parser.add_argument(
-    #     "--bam-out",
-    #     default="/dev/stdout",
-    #     help="path for the tagged BAM output (default=stdout)",
-    # )
-    # correct_parser.add_argument(
-    #     "--bam-out-mode", default="b", help="mode of the output BAM file (default=b)"
-    # )
-    # correct_parser.add_argument(
-    #     "--stats-out", default="", help="path for statistics output"
-    # )
-    # correct_parser.add_argument(
-    #     "--threads-read",
-    #     help="number of threads for reading bam_in (default=2)",
-    #     type=int,
-    #     default=2,
-    # )
-    # correct_parser.add_argument(
-    #     "--threads-write",
-    #     help="number of threads for writing bam_out (default=4)",
-    #     type=int,
-    #     default=4,
-    # )
-    # correct_parser.add_argument(
-    #     "--threads-work",
-    #     help="number of worker threads for actual trimming (default=8)",
-    #     type=int,
-    #     default=8,
-    # )
+    # correct
+    correct_parser = subparsers.add_parser("sam")
+    correct_parser.set_defaults(func=correct_cram)
+    correct_parser.add_argument(
+        "--input",
+        default="/dev/stdin",
+        help="path to a simple flat file (possibly gzipped) with barcodes to be queried (default=stdin)",
+    )
+    correct_parser.add_argument(
+        "--index",
+        default="bcref.mmap",
+        help="filename for the compiled barcode index (default=bcref.mmap)",
+    )
+    correct_parser.add_argument(
+        "--bam-out",
+        default="/dev/stdout",
+        help="path for the CB-corrected BAM output (default=stdout)",
+    )
+    correct_parser.add_argument(
+        "--nomatch-out",
+        default="",
+        help="path for the BAM records without match to the index (default='', meaning no output)",
+    )
+    correct_parser.add_argument(
+        "--bam-out-mode",
+        default="C",
+        help="mode of the output BAM file (default=C for CRAM)",
+    )
+    correct_parser.add_argument(
+        "--stats-out", default="", help="path for statistics output"
+    )
+    correct_parser.add_argument(
+        "--threads-read",
+        help="number of threads for reading bam_in (default=2)",
+        type=int,
+        default=2,
+    )
+    correct_parser.add_argument(
+        "--threads-write",
+        help="number of threads for writing bam_out (default=4)",
+        type=int,
+        default=4,
+    )
+    correct_parser.add_argument(
+        "--threads",
+        help="number of worker threads for actual CB queries (default=8)",
+        type=int,
+        default=8,
+    )
 
     # query
     query_parser = subparsers.add_parser("query")
@@ -394,7 +576,7 @@ def parse_args():
         "--n-max",
         default=0,
         type=int,
-        help="stop after reading the first N queries (default=0, meaning no limit)",
+        help="DEBUG: stop after reading the first N queries (default=0, meaning no limit)",
     )
     query_parser.add_argument(
         "--unique",
@@ -433,8 +615,9 @@ def cmdline():
     args = parse_args()
     util.setup_logging(args, name="scbamtools.bin.cb_correct")
     return args.func(args)
-    
+
     # return main(args)
+
 
 if __name__ == "__main__":
     res = cmdline()
