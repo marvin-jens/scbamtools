@@ -160,7 +160,11 @@ def sam_to_DGE(input, channels=[], cell_bc_allow_list="", config={}, **kw):
 
     dge = scbamtools.quant.DGE(channels=channels, cell_bc_allow_list=cell_bc_allow_list)
     for bundle in counter.bundles_from_SAM(input):
-        cell, gene, channels = counter.process_bundle(bundle)
+        res = counter.process_bundle(bundle)
+        if res is None:
+            continue
+
+        cell, gene, channels = res
         if cell != "-":
             dge.add_read(cell, gene, channels)
 
