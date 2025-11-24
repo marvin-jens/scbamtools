@@ -17,7 +17,7 @@ import mrfifo as mf
 import logging
 from time import time
 
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
 
 class BCIndex:
@@ -246,6 +246,17 @@ def build_index(args):
     return bci
 
 
+def write_edit_stats(n_edits, args):
+    logger = logging.getLogger("scbamtools.cb_correct.write_edit_stats")
+    logger.debug(f"writing statistics to {args.stats_out}")
+
+    with open(util.ensure_path(args.stats_out), "wt") as fout:
+        fout.write("edit\tn\n")
+
+        for e, n in sorted(n_edits.items(), key=lambda x: -x[1]):
+            fout.write(f"{e}\t{n}\n")
+
+
 def query_barcodes(args):
     logger = logging.getLogger("scbamtools.cb_correct.query_barcodes")
     logger.debug("loading barcode index")
@@ -283,35 +294,30 @@ def query_barcodes(args):
             bci.l_suffix,
             n_threads=args.threads,
         )
-        # n_total_queries = fq.query_idx64_variants(
-        #     idx_data, hits, hit_variants, bci.PI, bci.SL, bci.l_prefix, bci.l_suffix
-        # )
 
         dT = time() - T0
         rate = len(idx_data) / dT / 1000
-        logger.debug(
+        logger.info(
             f"queried {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)"
         )
         n_total_hits = (hit_variants > 0).sum()
-        logger.debug(
+        logger.info(
             f"found {n_total_hits}/{len(idx_data)} hits (match-rate = {n_total_hits/len(idx_data):.4f})"
         )
 
-        logger.debug(
+        logger.info(
             f"total queries processed: {n_total_queries} ({n_total_queries/len(idx_data):.2f} per barcode) rate: {n_total_queries / dT / 1000:.2f} k/sec)"
         )
 
     d = make_edit_dict(l=bci.l)
-    n_edits = np.bincount(hit_variants)
+    if args.stats_out:
+        n_edits = defaultdict(int)
+        for i, n in enumerate(np.bincount(hit_variants)):
+            n_edits[d[i]] = n
 
-    logger.debug(f"writing statistics to {args.stats_out}")
-    with open(util.ensure_path(args.stats_out), "wt") as fout:
-        fout.write("edit_code\tedit\tn\n")
+        write_edit_stats(n_edits, args)
 
-        for i, n in sorted(list(enumerate(n_edits)), key=lambda x: -x[1]):
-            fout.write(f"{i}\t{d.get(i,'?')}\t{n}\n")
-
-    logger.debug(f"writing results to {args.output}")
+    logger.info(f"writing results to {args.output}")
     with open(util.ensure_path(args.output), "wt") as fout:
         fout.write("barcode\tmatch\tedit\n")
 
@@ -322,92 +328,175 @@ def query_barcodes(args):
             fout.write(f"{bc}\t{match_bc}\t{edit}\n")
 
 
-def process_sam_records(input, output, args):
+def process_sam_records_serial(input, output, args):
     logger = util.setup_logging(args, name="scbamtools.cb_correct.process_sam_records")
     logger.debug("loading barcode index")
     bci = BCIndex(path=args.index)
 
     d = make_edit_dict(l=bci.l)
 
-    batch_size = 2000000
-    batch = []
-    cb_batch = []
-
     edit_counts = defaultdict(int)
-
-    def process_batch(batch, cb_batch):
-        # convert CBs to uint64
-        cb_idxs = np.array(
-            [fq.seq_to_uint64(bytes(cb, "ascii")) for cb in cb_batch],
-            dtype=np.uint64,
-        )
-
-        # query index
-        hit_variants = np.zeros(len(cb_idxs), dtype=np.int16)
-        hits = np.zeros(len(cb_idxs), dtype=np.uint64)
-        fq.query_idx64_variants_omp(
-            cb_idxs,
-            hits,
-            hit_variants,
-            bci.PI,
-            bci.SL,
-            bci.l_prefix,
-            bci.l_suffix,
-            n_threads=args.threads,
-        )
-
-        for i, (line, cb_tag) in enumerate(zip(batch, cb_batch)):
-            hit_variant = hit_variants[i]
-            hit = hits[i]
-
-            edit = d[hit_variant]
-            edit_counts[edit] += 1
-            if hit_variant > 0:
-                # found a match, update CB tag
-                corrected_cb = fq.uint64_to_seq(hit, bci.l)
-                line = line.replace(
-                    f"CB:Z:{cb_tag}", f"CB:Z:{corrected_cb}\tcb:Z:{edit}"
-                )
-
-                output.write(line)
-            else:
-                pass
-                # no match, pass through
-                # output_fifo.write(line)
 
     # main iteration over SAM records
     for line in input:
-        if line.startswith("@"):
-            # header line, pass through
-            output.write(line)
-            continue
-
-        fields = line.rstrip().split("\t")
         # find CB tag
+        fields = line.rstrip().split("\t")
         cb_tag = None
         for field in fields[11:]:
             if field.startswith("CB:Z:"):
                 cb_tag = field[5:]
                 break
 
-        if cb_tag is None:
-            # no CB tag, pass through
-            # output_fifo.write(line)
-            continue
+        if cb_tag:
+            # we have a CB tag, try to find or correct it
+            hit, edit_code = fq.query_idx64_variants_single(
+                fq.seq_to_uint64(bytes(cb_tag, "ascii")),
+                bci.PI,
+                bci.SL,
+                bci.l_prefix,
+                bci.l_suffix,
+            )
+            edit_str = d[edit_code]
+            edit_counts[edit_str] += 1
 
-        batch.append(line)
-        cb_batch.append(cb_tag)
+            if edit_code > 0:
+                # found a match, update CB tag
+                corrected_cb = fq.uint64_to_seq(hit, bci.l)
+                line = line.replace(
+                    f"CB:Z:{cb_tag}", f"CB:Z:{corrected_cb}\tcb:Z:{edit_str}"
+                )
 
-        if len(batch) >= batch_size:
-            process_batch(batch, cb_batch)
-            batch = []
-            cb_batch = []
-
-    # process remaining records
-    if len(batch) > 0:
-        process_batch(batch, cb_batch)
+        # one line goes out for every line that comes in
+        output.write(line)
 
     return edit_counts
+
+
+# def process_sam_records(input, output, args):
+#     logger = util.setup_logging(args, name="scbamtools.cb_correct.process_sam_records")
+#     logger.debug("loading barcode index")
+#     bci = BCIndex(path=args.index)
+
+#     d = make_edit_dict(l=bci.l)
+
+#     batch_size = 2000000
+#     batch = []
+#     cb_batch = []
+
+#     edit_counts = defaultdict(int)
+
+#     def process_batch(batch, cb_batch):
+#         # convert CBs to uint64
+#         cb_idxs = np.array(
+#             [fq.seq_to_uint64(bytes(cb, "ascii")) for cb in cb_batch],
+#             dtype=np.uint64,
+#         )
+
+#         # query index
+#         hit_variants = np.zeros(len(cb_idxs), dtype=np.int16)
+#         hits = np.zeros(len(cb_idxs), dtype=np.uint64)
+#         fq.query_idx64_variants_omp(
+#             cb_idxs,
+#             hits,
+#             hit_variants,
+#             bci.PI,
+#             bci.SL,
+#             bci.l_prefix,
+#             bci.l_suffix,
+#             n_threads=args.threads,
+#         )
+
+#         for i, (line, cb_tag) in enumerate(zip(batch, cb_batch)):
+#             hit_variant = hit_variants[i]
+#             hit = hits[i]
+
+#             edit = d[hit_variant]
+#             edit_counts[edit] += 1
+#             if hit_variant > 0:
+#                 # found a match, update CB tag
+#                 corrected_cb = fq.uint64_to_seq(hit, bci.l)
+#                 line = line.replace(
+#                     f"CB:Z:{cb_tag}", f"CB:Z:{corrected_cb}\tcb:Z:{edit}"
+#                 )
+
+#                 output.write(line)
+#             else:
+#                 pass
+#                 # no match, pass through
+#                 # output_fifo.write(line)
+
+#     # main iteration over SAM records
+#     for line in input:
+#         if line.startswith("@"):
+#             # header line, pass through
+#             output.write(line)
+#             continue
+
+#         fields = line.rstrip().split("\t")
+#         # find CB tag
+#         cb_tag = None
+#         for field in fields[11:]:
+#             if field.startswith("CB:Z:"):
+#                 cb_tag = field[5:]
+#                 break
+
+#         if cb_tag is None:
+#             # no CB tag, pass through
+#             # output_fifo.write(line)
+#             continue
+
+#         batch.append(line)
+#         cb_batch.append(cb_tag)
+
+#         if len(batch) >= batch_size:
+#             process_batch(batch, cb_batch)
+#             batch = []
+#             cb_batch = []
+
+#     # process remaining records
+#     if len(batch) > 0:
+#         process_batch(batch, cb_batch)
+
+#     return edit_counts
+
+
+def output_tee(
+    input, output_match, output_nomatch=None, policy="same", rate_every=1000000
+):
+    logger = logging.getLogger("scbamtools.cb_correct.output_tee")
+    N = defaultdict(int)
+
+    T0 = time()
+    for line in input:
+        if line.startswith("@"):
+            # header line, pass through
+            output_match.write(line)
+            if output_nomatch:
+                output_nomatch.write(line)
+
+            continue
+
+        N["total"] += 1
+        if "\tcb:Z:" in line:
+            N["match"] += 1
+            output_match.write(line)
+        else:
+            N["nomatch"] += 1
+            if output_nomatch:
+                output_nomatch.write(line)
+            elif policy == "same":
+                output_match.write(line)
+            else:
+                N["discarded"] += 1
+
+        if N["total"] % rate_every == 0:
+            dT = time() - T0
+            rate = N["total"] / dT / 1000
+            logger.info(
+                f"... processed {N['total']} records (match_rate={100.0 * N['match']/N['total']:.1f} %) in {dT:.1f} seconds ({rate:.2f} k/sec)"
+            )
+
+    return N
 
 
 def correct_cram(args):
@@ -417,55 +506,71 @@ def correct_cram(args):
     w = (
         mf.Workflow("cb")
         .BAM_reader(input=args.input, threads=args.threads_read)
-        .add_job(
-            func=process_sam_records,
+        .distribute(
             input=mf.FIFO("input_sam", "rt"),
+            outputs=mf.FIFO("dist{n}", "wt", n=args.threads),
+            chunk_size=1,
+            header_detect_func=util.is_header,
+            header_broadcast=False,
+            header_fifo=mf.FIFO("orig_header", "wt"),
+        )
+        .workers(
+            input=mf.FIFO("dist{n}", "rt"),
+            output=mf.FIFO("out{n}", "wt"),
+            func=process_sam_records_serial,
+            args=args,
+            n=args.threads,
+        )
+        .add_job(
+            func=util.update_header,
+            input=mf.FIFO("orig_header", "rt"),
+            output=mf.FIFO("new_header", "wt"),
+            progname="cb_correct.py",
+        )
+        .collect(
+            inputs=mf.FIFO("out{n}", "rt", n=args.threads),
+            header_fifo=mf.FIFO("new_header", "rt"),
             output=mf.FIFO("out_sam", "wt"),
+            chunk_size=1,
+        )
+    )
+    if args.nomatch_out not in ["discard", "same"]:
+        w.add_job(
+            func=output_tee,
+            input=mf.FIFO("out_sam", "rt"),
+            output_match=mf.FIFO("out_match_sam", "wt"),
+            output_nomatch=mf.FIFO("out_nomatch_sam", "wt"),
             args=args,
         )
-        # .add_job(
-        #     func=util.update_header,
-        #     input=mf.FIFO("orig_header", "rt"),
-        #     output=mf.FIFO("new_header", "wt"),
-        #     progname="cb_correct.py",
-        # )
-        # .distribute(
-        #     input=mf.FIFO("input_sam", "rt"),
-        #     outputs=mf.FIFO("dist{n}", "wt", n=args.threads_work),
-        #     chunk_size=1,
-        #     header_detect_func=is_header,
-        #     header_broadcast=False,
-        #     header_fifo=mf.FIFO("orig_header", "wt"),
-        # )
-        # .workers(
-        #     input=mf.FIFO("dist{n}", "rt"),
-        #     output=mf.FIFO("out{n}", "wt"),
-        #     func=annotate_SAM,
-        #     compiled_annotation=args.compiled,
-        #     n=args.threads_work,
-        # )
-        # .add_job(
-        #     func=util.update_header,
-        #     input=mf.FIFO("orig_header", "rt"),
-        #     output=mf.FIFO("new_header", "wt"),
-        #     progname="ann.py",
-        # )
-        # .collect(
-        #     inputs=mf.FIFO("out{n}", "rt", n=args.threads_work),
-        #     header_fifo=mf.FIFO("new_header", "rt"),
-        #     output=mf.FIFO("out_sam", "wt"),
-        #     chunk_size=1,
-        # )
-        .funnel(
-            input=mf.FIFO("out_sam", "rt"),
-            output=args.bam_out,
-            _manage_fifos=False,
-            func=mf.parts.bam_writer,
-            threads=args.threads_write,
-            fmt=f"Sh{args.bam_out_mode}",
+        w.BAM_writer(
+            input=mf.FIFO("out_nomatch_sam", "rt"),
+            output=args.nomatch_out,
         )
-        .run()
+    else:
+        w.add_job(
+            func=output_tee,
+            job_name="cb.output_tee",
+            input=mf.FIFO("out_sam", "rt"),
+            output_match=mf.FIFO("out_match_sam", "wt"),
+            policy=args.nomatch_out,
+        )
+
+    w.BAM_writer(
+        input=mf.FIFO("out_match_sam", "rt"),
+        output=args.bam_out,
+        threads=args.threads_write,
+        fmt=f"Sh{args.bam_out_mode}",
     )
+
+    w.run()
+
+    if args.stats_out:
+        # collect and write stats
+        # print(w.result_dict)
+        edit_counts = mf.util.aggregate_dicts(w)
+        # print(edit_counts)
+
+        write_edit_stats(edit_counts, args)
 
 
 def parse_args():
@@ -529,8 +634,12 @@ def parse_args():
     )
     correct_parser.add_argument(
         "--nomatch-out",
-        default="",
-        help="path for the BAM records without match to the index (default='', meaning no output)",
+        default="discard",
+        help=(
+            "path for the BAM records without match to the index (default='discard', meaning no output.'"
+            "Other options are 'same' to write them to the same output as matched records,"
+            " or a path to a separate BAM/CRAM file to write them to."
+        ),
     )
     correct_parser.add_argument(
         "--bam-out-mode",
@@ -613,7 +722,7 @@ def parse_args():
 
 def cmdline():
     args = parse_args()
-    util.setup_logging(args, name="scbamtools.bin.cb_correct")
+    logger = util.setup_logging(args, name="scbamtools.bin.cb_correct")
     return args.func(args)
 
     # return main(args)
