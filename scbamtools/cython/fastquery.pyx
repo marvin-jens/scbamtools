@@ -344,7 +344,7 @@ def query(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, n
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
 #@cython.nogil
-def query_idx64(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
+def query_idx64(ndarray[np_uint64_t, ndim=1]  bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
     """
     For each barcode in bc_list, check whether it is in the index defined by PI and SL.
     Mark hits in the hits array (1 = hit, 0 = no hit).
@@ -362,12 +362,14 @@ def query_idx64(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint3
     # PI and SL can be read-only (e.g. memory-mapped files), so use const views
     cdef const uint32_t[:] PI_view = PI
     cdef const uint32_t[:] SL_view = SL
+    cdef const uint64_t[::1] bc_list_view = bc_list
+ 
     cdef uint8_t[:] hits_view = hits
     cdef uint8_t rshift = 2 * l_suffix
     cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
 
     for i in range(n):
-        bc = bc_list[i]
+        bc = bc_list_view[i]
         # fast-path for bytes: read raw buffer and compute indices without Python indexing
         idx_p = <uint32_t>(bc >> rshift)
         # print(f"idx_p={idx_p} for bc={bc}")
