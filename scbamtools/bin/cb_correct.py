@@ -277,8 +277,31 @@ def query_barcodes(args):
         f"loaded {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)"
     )
 
-    if args.exact_only:
-        pass
+    if args.dist == "0":
+        logger.info("querying barcodes for exact matches (d=0)")
+        hit_flag = np.zeros(len(idx_data), dtype=np.uint8)
+        T0 = time()
+        fq.query_idx64(
+            idx_data,
+            hit_flag,
+            bci.PI,
+            bci.SL,
+            bci.l_prefix,
+            bci.l_suffix,
+        )
+
+        dT = time() - T0
+        rate = len(idx_data) / dT / 1000
+        logger.info(
+            f"queried {len(idx_data)} barcodes in {dT:.1f} seconds ({rate:.2f} k/sec)"
+        )
+        n_total_hits = (hit_flag > 0).sum()
+        logger.info(
+            f"found {n_total_hits}/{len(idx_data)} hits (match-rate = {n_total_hits/len(idx_data):.4f})"
+        )
+        hits = idx_data.copy()
+        hit_variants = np.zeros(hits.shape, dtype=np.int16)
+        hit_variants[:] = hit_flag[:]  # 1 -> '=' exact match
     else:
         logger.debug("querying barcodes")
         hit_variants = np.zeros(len(idx_data), dtype=np.int16)
@@ -319,13 +342,18 @@ def query_barcodes(args):
 
     logger.info(f"writing results to {args.output}")
     with open(util.ensure_path(args.output), "wt") as fout:
-        fout.write("barcode\tmatch\tedit\n")
+        if args.out_mode == "table":
+            fout.write("barcode\tmatch\tedit\n")
+            for i in range(len(idx_data)):
+                bc = fq.uint64_to_seq(idx_data[i], bci.l)
+                match_bc = fq.uint64_to_seq(hits[i], bci.l)
+                edit = d[hit_variants[i]]
+                fout.write(f"{bc}\t{match_bc}\t{edit}\n")
 
-        for i in range(len(idx_data)):
-            bc = fq.uint64_to_seq(idx_data[i], bci.l)
-            match_bc = fq.uint64_to_seq(hits[i], bci.l)
-            edit = d[hit_variants[i]]
-            fout.write(f"{bc}\t{match_bc}\t{edit}\n")
+        elif args.out_mode == "match":
+            for bc in idx_data[hit_variants == 1]:
+                match_bc = fq.uint64_to_seq(bc, bci.l)
+                fout.write(f"{match_bc}\n")
 
 
 def process_sam_records_serial(input, output, args):
@@ -714,6 +742,18 @@ def parse_args():
         type=int,
         default=8,
         help="number of parallel threads to use for querying (default=8)",
+    )
+    query_parser.add_argument(
+        "--dist",
+        default="1",
+        choices=["0", "1"],  # TODO: "1.5" for extended d=2 at the end only
+        help="disable (0) or enable (1) Levenshtein distance=1 matching (default=1)",
+    )
+    query_parser.add_argument(
+        "--out-mode",
+        default="table",
+        choices=["table", "match"],
+        help="what kind of output to report. 'table' (default) has query, match, edit as columns. 'match' only the match",
     )
 
     args = parser.parse_args()
