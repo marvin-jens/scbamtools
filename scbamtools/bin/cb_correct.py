@@ -63,7 +63,7 @@ class BCIndex:
         )
 
     @classmethod
-    def build_from_barcodes(cls, src, mmap_path="bcref.mmap", l_prefix=10, l_suffix=15):
+    def build_from_barcodes(cls, src, mmap_path="bcref.mmap", l_prefix=10, l_suffix=0):
         # prefix index -> list index
         logger = logging.getLogger("BCIndex.build_from_barcodes")
         logger.debug("building temp set list")
@@ -77,7 +77,18 @@ class BCIndex:
         rshift = 2 * l_suffix
         mask = np.uint64((1 << (2 * l_suffix)) - 1)
         T0 = time()
-        for idx in src:
+        for seq in src:
+            if l_suffix == 0:
+                # automatic suffix length detection
+                l_suffix = len(seq) - l_prefix
+                logger.debug(
+                    f"automatically setting l_prefix={l_prefix} to accomodate barcodes of length {len(seq)}"
+                )
+                assert l_suffix > 0
+                rshift = 2 * l_suffix
+                mask = np.uint64((1 << (2 * l_suffix)) - 1)
+
+            idx = fq.seq_to_uint64(seq)
             n_seqs += 1
             idx_p = idx >> rshift
             idx_s = idx & mask
@@ -90,6 +101,8 @@ class BCIndex:
                 logger.info(
                     f"... processed {n_seqs} sequences in {dT:.1f} seconds ({rate:.1f}k/sec)"
                 )
+
+        assert len(seq) == l_prefix + l_suffix
 
         dT = time() - T0
         rate = n_seqs / dT / 1000
@@ -194,7 +207,8 @@ def reader(fname, n_max=None):
             break
 
         seq = line.rstrip().split("\t", maxsplit=1)[0]  # .replace("N", "A")
-        yield fq.seq_to_uint64(bytes(seq, "ascii"))
+        # yield fq.seq_to_uint64(bytes(seq, "ascii"))
+        yield (bytes(seq, "ascii"))
 
     dT = time() - T0
     rate = n / dT / 1000
@@ -608,6 +622,7 @@ def parse_args():
         "cb_correct.py",
         description="correct cell barcodes in SAM/BAM/CRAM streams based on a reference list",
     )
+    # parser.set_defaults(func=parser.print_help)
     subparsers = parser.add_subparsers()
 
     # build index
@@ -631,9 +646,9 @@ def parse_args():
     )
     index_parser.add_argument(
         "--l-suffix",
-        default=15,
+        default=0,
         type=int,
-        help="number of barcode bases used as suffix for indexing (default=15)",
+        help="number of barcode bases used as suffix for indexing (default=0 -> L(barcode) - l_prefix)",
     )
     index_parser.add_argument(
         "--force-overwrite",
@@ -756,7 +771,7 @@ def parse_args():
         help="what kind of output to report. 'table' (default) has query, match, edit as columns. 'match' only the match",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(args=None if sys.argv[1:] else ["--help"])
     return args
 
 
