@@ -7,18 +7,9 @@ import matplotlib.pyplot as plt
 
 
 def edit_stats(df, query="query", ref="ref"):
+    import scbamtools.tk as tk
 
-    def extract_pos(x):
-        if M := re.search(r"\d+", x[1:]):
-            return int(M.group())
-        else:
-            return -1
-
-    if not "op" in df.columns:
-        df["op"] = df["edit"].apply(lambda x: x[0])
-        df["pos"] = df["edit"].apply(extract_pos)
-
-    op = df.groupby("op")["n"].sum()
+    op, (S_freq, I_freq, D_freq) = tk.summarize_edit_stats(df)
 
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(12, 4))
     fig.suptitle(f"{query} vs {ref} barcode match statistics")
@@ -38,10 +29,6 @@ def edit_stats(df, query="query", ref="ref"):
         wedgeprops=dict(width=0.5, edgecolor="w"),
     )
 
-    S_freq = df.loc[df["op"] == "S"].groupby("pos")["n"].sum()
-    I_freq = df.loc[df["op"] == "I"].groupby("pos")["n"].sum()
-    D_freq = df.loc[df["op"] == "_"].groupby("pos")["n"].sum()
-
     # frequencies of edits at each barcode position
     N = S_freq.sum() + I_freq.sum() + D_freq.sum()
 
@@ -57,14 +44,20 @@ def edit_stats(df, query="query", ref="ref"):
     # boost relative to exact matches
     f = df.groupby("op")["n"].agg("sum")
     F = f / f.sum()
+    F.loc["combined"] = F.loc[["S", "I", "_"]].sum()
     boost = F / F.loc["="]
+    # print(boost)
 
-    g = sns.barplot(100 * boost.loc[["S", "I", "_"]], orient="h", ax=ax3, width=0.5)
-    g.patches[1].set_color("orange")
-    g.patches[2].set_color("green")
+    g = sns.barplot(
+        100 * boost.loc[["combined", "S", "I", "_"]], orient="h", ax=ax3, width=0.5
+    )
+    g.patches[0].set_color("goldenrod")
+    g.patches[1].set_color("blue")
+    g.patches[2].set_color("orange")
+    g.patches[3].set_color("green")
 
     ax3.set_xlabel("increase relative to exact matches [%]")
-    ax3.set_yticklabels(["mismatch", "ins", "del"])
+    ax3.set_yticklabels(["combined", "mismatch", "ins", "del"])
     ax3.spines.right.set_visible(False)
     ax3.spines.top.set_visible(False)
 
