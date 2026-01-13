@@ -344,7 +344,7 @@ def query(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, n
 @cython.nonecheck(False)
 @cython.exceptval(check=False)
 #@cython.nogil
-def query_idx64(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
+def query_idx64(ndarray[np_uint64_t, ndim=1]  bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
     """
     For each barcode in bc_list, check whether it is in the index defined by PI and SL.
     Mark hits in the hits array (1 = hit, 0 = no hit).
@@ -362,12 +362,14 @@ def query_idx64(list bc_list, ndarray[np_uint8_t, ndim=1] hits, ndarray[np_uint3
     # PI and SL can be read-only (e.g. memory-mapped files), so use const views
     cdef const uint32_t[:] PI_view = PI
     cdef const uint32_t[:] SL_view = SL
+    cdef const uint64_t[::1] bc_list_view = bc_list
+ 
     cdef uint8_t[:] hits_view = hits
     cdef uint8_t rshift = 2 * l_suffix
     cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
 
     for i in range(n):
-        bc = bc_list[i]
+        bc = bc_list_view[i]
         # fast-path for bytes: read raw buffer and compute indices without Python indexing
         idx_p = <uint32_t>(bc >> rshift)
         # print(f"idx_p={idx_p} for bc={bc}")
@@ -744,6 +746,76 @@ cdef int make_substitutions(uint64_t idx_s, uint64_t* variants, uint64_t start=0
         mask <<= 2
 
     return i
+
+
+@cython.wraparound(False)
+@cython.boundscheck(False)
+@cython.overflowcheck(False)
+@cython.initializedcheck(False)
+@cython.nonecheck(False)
+@cython.exceptval(check=False)
+# @cython.nogil
+def query_idx64_variants_single(uint64_t bc, ndarray[np_uint32_t, ndim=1] PI, ndarray[np_uint32_t, ndim=1] SL, int l_prefix, int l_suffix):
+    """
+    For each barcode in bc_list, check whether it is in the index defined by PI and SL.
+    Mark hits in the hits array (1 = hit, 0 = no hit).
+    bc_list: list of bytes objects (barcodes)
+    hits: 1D numpy array of uint8_t, preallocated, length = len(bc_list)
+    PI: 1D numpy array of uint32_t, prefix index
+    SL: 1D numpy array of uint32_t, suffix list
+    l_prefix: length of prefix in bases
+    """
+    cdef Py_ssize_t i
+    cdef int h
+    cdef uint32_t j=0, idx_p, idx_s, ofs, nn
+    cdef uint64_t l = l_prefix + l_suffix, n_variants, n_tested, n_trigger_subs_del = 8 * (l - 1)  - 1
+    # create typed memoryviews for fast C-level access
+    # PI and SL can be read-only (e.g. memory-mapped files), so use const views
+    cdef const uint32_t[::1] PI_view = PI
+    cdef const uint32_t[::1] SL_view = SL
+    cdef uint64_t hit = 0
+    cdef int16_t edit_code = 0
+    cdef uint8_t rshift = 2 * l_suffix
+    cdef uint64_t mask = (1 << (2 * l_suffix)) - 1
+    cdef uint64_t[1000] idx_variants
+
+    n_tested = 0
+    idx_variants[0] = bc # exact match
+    n_variants = 1
+
+    while n_tested < n_variants:
+        # print(f"n_tested={n_tested} n_variants={n_variants}")
+        bc = idx_variants[n_tested]
+        # fast-path for bytes: read raw buffer and compute indices without Python indexing
+        idx_p = <uint32_t>(bc >> rshift) # prefix
+        # print(f"idx_p={idx_p} for bc={bc_var}")
+
+        ofs = PI_view[idx_p]
+        # print("ofs=", ofs)
+
+        if ofs != 0:
+            idx_s = <uint32_t>(bc & mask) # suffix
+            nn = SL_view[ofs]
+            # print(f"idx_s={idx_s} nn={nn}")
+            h = find_in_list(idx_s, &SL_view[ofs+1], nn)
+            if h:
+                edit_code = n_tested + 1 # the variant number that had the hit (which edit)
+                hit = bc # the variant that had the hit, i.e. the corrected barcode
+                break # stop at first hit
+
+        if n_tested == 0:
+            # we did not get a hit for the original sequence,
+            # generate insertion variants for the original sequence
+            n_variants += make_insertions(bc, &idx_variants[n_variants], l)
+
+        # if n_tested == n_trigger_subs_del:
+            # we have tried all insertion variants, now generate substitution and deletion variants
+            n_variants += make_substitutions(bc, &idx_variants[n_variants], 0, l)
+            n_variants += make_deletions(bc, &idx_variants[n_variants], l)
+        
+        n_tested += 1
+
+    return hit, edit_code
 
 
 
