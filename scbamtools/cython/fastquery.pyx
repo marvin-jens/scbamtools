@@ -111,7 +111,7 @@ cpdef str uint64_to_seq(uint64_t idx, int k):
     Decode a 64-bit unsigned integer into a DNA sequence of length k (max 32).
     """
     cdef char[32] buf
-    cdef char[4] bases = ['A', 'C', 'G', 'T']
+    cdef char[4] bases = [b'A', b'C', b'G', b'T']
     cdef int i
     cdef uint64_t bits
 
