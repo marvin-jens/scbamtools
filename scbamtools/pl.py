@@ -68,14 +68,19 @@ def preprocessing_stats(df, sample_id="sample", show=True):
         df_name = df_bases.loc[df_bases['name'] == name].sort_values('value')
         x = df_name['value']
         y = df_name['count']
-        ax3.step(x,y, label=name, where='mid')
-        ax3.set_xlabel("length [nt]")
-        ax3.set_ylabel("count")
+        cdf = np.cumsum(y) / np.sum(y)
+        steps = ax3.step(x, cdf, label=name, where='mid')
+        if name == "L_out":
+            ax3.axvline(x=18, color=steps[0].get_color(), linestyle='--', label='L_out cutoff')
 
-    ax3.set_yscale('log')
+        ax3.set_xlabel("length [nt]")
+        ax3.set_ylabel("cumulative fraction")
+
+    
+    # ax3.set_yscale('log')
     ax3.set_xlim(xmin, xmax)
     ax3.set_xticks(np.arange(xmin, xmax+1, step=10))
-    ax3.legend(ncols=3, loc="upper center")
+    ax3.legend(ncols=1, loc="center left", bbox_to_anchor=(1.0, 0.5))
     ax3.grid(visible=True, which='both', axis='x', linestyle='--', linewidth=0.5)
 
     ax3.spines.right.set_visible(False)
