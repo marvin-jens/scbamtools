@@ -104,12 +104,28 @@ def edit_stats(df, query="query", ref="ref", show=True):
 
     #
     order = ["=", "S", "I", "_", "X"]
-    labels = ["exact", "subst.", "ins", "del", "no match"]
+    label_dict = {
+        "=": "exact",
+        "S": "subst.",
+        "I": "ins",
+        "_": "del",
+        "X": "no match",
+    }
+    color_dict = {
+        "combined": "goldenrod",
+        "=": "xkcd:azure",
+        "S": "teal",
+        "I": "xkcd:periwinkle",
+        "_": "xkcd:amethyst",
+        "X": "xkcd:cherry",
+    }
+    order =[o for o in order if o in op.index] # intersection while preserving order
+    labels = [label_dict[o] for o in order]
 
     _ = ax1.pie(
         op.loc[order],
         labels=labels,
-        colors=plt.color_sequences["tab20c"],
+        colors=[color_dict[o] for o in order],
         autopct="%.2f%%",
         pctdistance=0.75,
         counterclock=False,
@@ -120,9 +136,9 @@ def edit_stats(df, query="query", ref="ref", show=True):
     # frequencies of edits at each barcode position
     N = S_freq.sum() + I_freq.sum() + D_freq.sum()
 
-    ax2.plot(S_freq / N, label="subst.")
-    ax2.plot(I_freq / N, label="ins")
-    ax2.plot(D_freq / N, label="del")
+    ax2.plot(S_freq / N, label="subst.", color=color_dict["S"])
+    ax2.plot(I_freq / N, label="ins", color=color_dict["I"])
+    ax2.plot(D_freq / N, label="del", color=color_dict["_"])
     ax2.legend()
     ax2.set_xlabel("position [nt]")
     ax2.set_ylabel("fraction of edits")
@@ -132,21 +148,23 @@ def edit_stats(df, query="query", ref="ref", show=True):
     # boost relative to exact matches
     f = df.groupby("op")["n"].agg("sum")
     F = f / f.sum()
-    F.loc["combined"] = F.loc[["S", "I", "_"]].sum()
+
+    all_edits = ["S", "I", "_"]
+    found_edits = [e for e in all_edits if e in F.index] # intersection while preserving order
+    F.loc["combined"] = F.loc[found_edits].sum()
     boost = F / F.loc["="]
     # print(boost)
 
     g = sns.barplot(
-        100 * boost.loc[["combined", "S", "I", "_"]], orient="h", ax=ax3, width=0.5
+        100 * boost.loc[["combined",] + list(found_edits)], orient="h", ax=ax3, width=0.5
     )
-    g.patches[0].set_color("goldenrod")
-    g.patches[1].set_color("blue")
-    g.patches[2].set_color("orange")
-    g.patches[3].set_color("green")
+    colors = [color_dict[o] for o in ["combined"] + list(found_edits)]
+    for i, c in enumerate(colors):
+        g.patches[i].set_color(c)
 
     ax3.set_xlabel("increase relative to exact matches [%]")
-    ax3.set_yticks(np.arange(4))
-    ax3.set_yticklabels(["combined", "mismatch", "ins", "del"])
+    ax3.set_yticks(np.arange(len(colors)))
+    ax3.set_yticklabels(["combined",] + [label_dict[e] for e in found_edits])
     ax3.spines.right.set_visible(False)
     ax3.spines.top.set_visible(False)
 
