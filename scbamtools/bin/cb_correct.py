@@ -582,7 +582,6 @@ def correct_cram(args):
             input=mf.FIFO("out_sam", "rt"),
             output_match=mf.FIFO("out_match_sam", "wt"),
             output_nomatch=mf.FIFO("out_nomatch_sam", "wt"),
-            args=args,
         )
         w.BAM_writer(
             input=mf.FIFO("out_nomatch_sam", "rt"),
