@@ -74,7 +74,7 @@ class BCIndex:
 
         logger.debug("* ingesting sequences")
         n_seqs = 0
-        rshift = 2 * l_suffix
+        rshift = np.uint64(2 * l_suffix)
         mask = np.uint64((1 << (2 * l_suffix)) - 1)
         T0 = time()
         for seq in src:
@@ -85,10 +85,11 @@ class BCIndex:
                     f"automatically setting l_prefix={l_prefix} to accomodate barcodes of length {len(seq)}"
                 )
                 assert l_suffix > 0
-                rshift = 2 * l_suffix
+                rshift = np.uint64(2 * l_suffix)
                 mask = np.uint64((1 << (2 * l_suffix)) - 1)
 
-            idx = fq.seq_to_uint64(seq)
+            idx = np.uint64(fq.seq_to_uint64(seq))
+            # print(f"debug: seq={seq} idx={idx} mask={mask} rshift={rshift} idx_t={type(idx)} mask_t={type(mask)} rshift_t={type(rshift)} l_prefix={l_prefix} l_suffix={l_suffix}", file=sys.stderr)
             n_seqs += 1
             idx_p = idx >> rshift
             idx_s = idx & mask
@@ -129,7 +130,7 @@ class BCIndex:
         n_total = n_header + n_prefix + n_slists
         logger.debug(f"* total MMAP size: {n_total *4} bytes")
 
-        MMAP = np.memmap(mmap_path, mode="w+", shape=n_total + 1, dtype=np.uint32)
+        MMAP = np.memmap(util.ensure_path(mmap_path), mode="w+", shape=n_total + 1, dtype=np.uint32)
         MMAP[0:4] = np.array([ord("B"), ord("C"), ord("I"), 1], dtype=np.uint32)
         MMAP[4] = np.uint32(l_prefix)
         MMAP[5] = np.uint32(l_suffix)
