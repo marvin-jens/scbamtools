@@ -536,7 +536,7 @@ def output_tee(
             dT = time() - T0
             rate = N["total"] / dT / 1000
             logger.info(
-                f"... processed {N['total']} records (match_rate={100.0 * N['match']/N['total']:.1f} %) in {dT:.1f} seconds ({rate:.2f} k/sec)"
+                f"... processed {N['total']:,} records (match_rate={100.0 * N['match']/N['total']:.1f} %) in {dT:.1f} seconds ({rate:.2f} k/sec)"
             )
 
     return N
